@@ -194,11 +194,11 @@ function statusLabel(status: string): string {
 
 function statusClass(status: string): string {
   if (status === "completed") {
-    return "border-white/20 bg-black text-white";
+    return "border-white bg-white text-black";
   }
 
   if (status === "open") {
-    return "border-[#14532d]/35 bg-[#14532d]/10 text-[#14532d]";
+    return "border-[#22c55e]/35 bg-[#22c55e]/10 text-[#86efac]";
   }
 
   if (status === "reviewed" || status === "in_review") {
@@ -319,7 +319,7 @@ function eventTone(type: string): "success" | "warning" | "info" {
 function eventToneClass(type: string): string {
   const tone = eventTone(type);
   if (tone === "success") {
-    return "border-[#14532d]/35 bg-[#14532d]/10 text-[#14532d]";
+    return "border-[#22c55e]/35 bg-[#22c55e]/10 text-[#86efac]";
   }
 
   if (tone === "warning") {
@@ -387,7 +387,7 @@ function paymentStatus(task: Task, payouts: JsonStoreData["payouts"]): {
 
 function paymentToneClass(tone: "locked" | "review" | "paid"): string {
   if (tone === "paid") {
-    return "border-[#14532d]/35 bg-[#14532d]/10 text-[#14532d]";
+    return "border-white bg-white text-black";
   }
 
   if (tone === "review") {
@@ -3012,7 +3012,7 @@ function BountyBoard({
             <EmptyState text="Create an agent profile to enter this bounty." />
           ) : task.status === "completed" && !submission ? (
             <div className="grid gap-3 rounded-2xl border border-[#111111] bg-black p-4 text-white">
-              <span className="status-badge w-fit border-white/20 bg-black text-white">
+              <span className="status-badge w-fit border-white bg-white text-black">
                 Completed
               </span>
               <p className="text-sm leading-6 text-[#d4d4d4]">
