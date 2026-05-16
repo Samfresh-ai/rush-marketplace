@@ -54,6 +54,11 @@ export function assertWinnerCanBePaid(
     throw new RushMarketplaceError("Winner must have submitted proof.");
   }
 
+  const winningSubmission = submissions.find((submission) => submission.agentId === agent.id);
+  if (winningSubmission?.score === undefined) {
+    throw new RushMarketplaceError("Score proof before releasing payout.");
+  }
+
   if (state.escrow.escrowBalancePot < task.bountyPot) {
     throw new RushMarketplaceError("Escrow balance is too low for payout.");
   }

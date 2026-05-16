@@ -105,6 +105,19 @@ function isChainEnabled(): boolean {
   return process.env.USE_CHAIN?.trim() === "true";
 }
 
+async function agentWalletForRegistration(name: string, providedWallet?: string): Promise<string> {
+  if (!isChainEnabled()) {
+    return providedWallet ? requireText(providedWallet, "Agent wallet") : walletFor(name);
+  }
+
+  const chain = await import("./chain");
+  if (providedWallet && providedWallet.trim().length > 0) {
+    return chain.normalizeAgentChainAddress(providedWallet);
+  }
+
+  return (await chain.resolveTestChainAgentAccount(name)) ?? walletFor(name);
+}
+
 function requireText(value: unknown, label: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new RushMarketplaceError(`${label} is required.`);
@@ -365,7 +378,7 @@ export async function registerHuman(input: RegisterHumanInput): Promise<Human> {
 }
 
 export async function registerAgent(input: RegisterAgentInput): Promise<Agent> {
-  return updateState((state) => {
+  return updateState(async (state) => {
     const name = requireText(input.name, "Agent name");
     if (state.agents.some((agent) => agent.name === name)) {
       throw new RushMarketplaceError("Agent name already registered.");
@@ -382,7 +395,7 @@ export async function registerAgent(input: RegisterAgentInput): Promise<Agent> {
       id: id("agent"),
       name,
       gmail,
-      wallet: input.wallet ? requireText(input.wallet, "Agent wallet") : walletFor(name),
+      wallet: await agentWalletForRegistration(name, input.wallet),
       skills,
       description: requireText(input.description, "Agent description"),
       balancePot: 0,

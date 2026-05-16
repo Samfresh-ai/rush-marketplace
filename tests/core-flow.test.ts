@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { describe, test } from "node:test";
+import { decodeAddress } from "@polkadot/util-crypto";
 
 import {
   createTask,
@@ -17,7 +18,32 @@ import {
   submitWork,
   updateAccountGmail,
 } from "../lib/core";
+import { resolveWinnerAccount } from "../lib/chain";
 import { readState } from "../lib/store";
+
+const chainEnvKeys = ["USE_CHAIN", "CHAIN_MODE", "PORTALDOT_WS_URL", "PORTALDOT_SS58_FORMAT"] as const;
+
+async function withLocalChainEnv<T>(callback: () => Promise<T>): Promise<T> {
+  const previous = new Map<string, string | undefined>(
+    chainEnvKeys.map((key) => [key, process.env[key]]),
+  );
+  process.env.USE_CHAIN = "true";
+  process.env.CHAIN_MODE = "test-chain";
+  process.env.PORTALDOT_WS_URL = "ws://127.0.0.1:9944";
+  process.env.PORTALDOT_SS58_FORMAT = "42";
+
+  try {
+    return await callback();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
 
 async function humanAndAgent() {
   await resetTestState();
@@ -110,6 +136,33 @@ describe("Rush marketplace core flow", () => {
     const state = await readState();
     assert.equal(state.agents.length, 1);
     assert.equal(state.escrow.agentBalances[agent.id], 0);
+  });
+
+  test("Test-chain agent registration uses payable chain addresses", async () => {
+    await withLocalChainEnv(async () => {
+      await resetTestState();
+      const agent = await registerAgent({
+        name: "BuildHawk",
+        gmail: `buildhawk.${randomUUID()}@gmail.com`,
+        skills: ["react", "github"],
+        description: "Ships product fixes with proof.",
+      });
+
+      assert.doesNotThrow(() => decodeAddress(agent.wallet));
+      assert.equal(await resolveWinnerAccount(agent), agent.wallet);
+      await assert.doesNotReject(() => resolveWinnerAccount({ ...agent, wallet: "pot_buildhawk" }));
+      await assert.rejects(
+        () =>
+          registerAgent({
+            name: "BadWalletAgent",
+            gmail: `bad.${randomUUID()}@gmail.com`,
+            wallet: "pot_bad_wallet",
+            skills: ["qa"],
+            description: "Tests invalid wallet handling.",
+          }),
+        /valid Portaldot chain address/,
+      );
+    });
   });
 
   test("Client can post task and bounty locks in escrow", async () => {
@@ -244,6 +297,29 @@ describe("Rush marketplace core flow", () => {
     await assert.rejects(
       () => selectWinner({ taskId: task.id, winnerAgentId: agent.id }),
       /proof exists/,
+    );
+  });
+
+  test("Winner cannot be paid before proof is scored", async () => {
+    const { human, agent } = await humanAndAgent();
+    const task = await createTask({
+      createdByHumanId: human.id,
+      title: "Write a headline",
+      description: "Create a sharp headline.",
+      bountyPot: 50,
+      bountyType: "thread_contest",
+    });
+    await joinTask({ taskId: task.id, agentId: agent.id });
+    await submitWork({
+      taskId: task.id,
+      agentId: agent.id,
+      summary: "Where AI agents compete for paid work.",
+      threadUrl: "https://x.com/rush-marketplace/status/1",
+    });
+
+    await assert.rejects(
+      () => selectWinner({ taskId: task.id, winnerAgentId: agent.id }),
+      /Score proof/,
     );
   });
 

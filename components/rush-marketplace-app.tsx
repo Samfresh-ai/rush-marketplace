@@ -928,7 +928,7 @@ export function RushMarketplaceApp() {
           body: { winnerAgentId: agentId },
         });
       },
-      `${formatAgent(agentId, agents)} selected. Payout released.`,
+      `Payout released to ${formatAgent(agentId, agents)}.`,
       "Releasing payout",
     );
   }
@@ -2125,7 +2125,7 @@ function DashboardHero({
     tasks:
       "Your posted bounties with type, payout, competitors, proof count, status, and age.",
     submissions:
-      "Review competing agents, submitted proof, scores, notes, and winner actions in one place.",
+      "Review competing agents, submitted proof, scores, notes, and payout release in one place.",
     payouts:
       "See released POT, winners, task provenance, and payout timing without digging through raw JSON.",
     analytics:
@@ -2135,7 +2135,7 @@ function DashboardHero({
     agents:
       "Top-level agent feed for focused hiring requests.",
     settings:
-      "Live proof-only controls are tucked away here so the main dashboard stays clean.",
+      "Manage Gmail return access and account deletion without exposing test-chain controls.",
   };
 
   return (
@@ -3581,7 +3581,7 @@ function SubmissionsWorkspace({
               Choose a bounty to review proof
             </h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-[#a3a3a3]">
-              Bounties stay in one grid first. Click any bounty to load entrants, proof, scores, and winner actions below.
+              Bounties stay in one grid first. Click any bounty to load entrants, proof, scores, and payout state below.
             </p>
           </div>
           <span className="pot-badge w-fit">
@@ -3795,7 +3795,6 @@ function CompetitionPanel({
                       [submission.id]: !expandedSubmissions[submission.id],
                     })
                   }
-                  selectWinner={selectWinner}
                   submission={submission}
                   task={task}
                 />
@@ -3831,6 +3830,7 @@ function CompetitionPanel({
                 const isRecommended =
                   task.reviewerRecommendation === submission.agentId;
                 const isWinner = task.winnerAgentId === submission.agentId;
+                const canReleasePayout = submission.score !== undefined;
                 return (
                   <div
                     className={cx(
@@ -3882,18 +3882,26 @@ function CompetitionPanel({
                           : "Not selected"}
                       </p>
                     ) : (
-                      <button
-                        className={cx(
-                          "mt-4 h-10 rounded-xl px-3 text-sm font-semibold",
-                          isRecommended
-                            ? "bg-[#f59e0b] text-black"
-                            : "bg-[#7c3aed] text-white",
-                        )}
-                        onClick={() => selectWinner(task, submission.agentId)}
-                        type="button"
-                      >
-                        Select as Winner
-                      </button>
+                      <div className="mt-4 grid gap-2">
+                        <button
+                          className={cx(
+                            "h-10 rounded-xl px-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45",
+                            isRecommended
+                              ? "bg-[#f59e0b] text-black"
+                              : "bg-[#7c3aed] text-white",
+                          )}
+                          disabled={!canReleasePayout}
+                          onClick={() => selectWinner(task, submission.agentId)}
+                          type="button"
+                        >
+                          Release payout
+                        </button>
+                        {!canReleasePayout ? (
+                          <p className="text-xs font-semibold text-[#737373]">
+                            Score proof before payout.
+                          </p>
+                        ) : null}
+                      </div>
                     )}
                   </div>
                 );
@@ -3910,14 +3918,12 @@ function SubmissionCard({
   agents,
   expanded,
   onToggle,
-  selectWinner,
   submission,
   task,
 }: {
   agents: Agent[];
   expanded: boolean;
   onToggle: () => void;
-  selectWinner: (task: Task, agentId: string) => void;
   submission: Submission;
   task: Task;
 }) {
@@ -4016,15 +4022,6 @@ function SubmissionCard({
             <span className="rounded-xl border border-[#2a2a2a] bg-[#111111] px-3 py-2 text-sm text-[#a3a3a3]">
               {submissionStatus(task, submission)}
             </span>
-            {task.status !== "completed" ? (
-              <button
-                className="secondary-button h-9 px-3"
-                onClick={() => selectWinner(task, submission.agentId)}
-                type="button"
-              >
-                Select as Winner
-              </button>
-            ) : null}
           </div>
         </div>
       ) : null}

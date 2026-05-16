@@ -231,28 +231,101 @@ export async function getTestChainSigner(): Promise<ReturnType<Keyring["addFromU
   return signerFromMnemonic("HUMAN_MNEMONIC");
 }
 
-async function testAgentAddress(envName: string): Promise<string> {
-  const pair = await signerFromMnemonic(envName);
+async function addressFromUri(uri: string): Promise<string> {
+  await cryptoWaitReady();
+  const keyring = new Keyring({ type: "sr25519", ss58Format: ss58Format() });
+  const pair = keyring.addFromUri(uri);
   return pair.address;
+}
+
+function normalizeChainAddress(address: string, label = "Chain address"): string {
+  try {
+    return encodeAddress(decodeAddress(address), ss58Format());
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new RushMarketplaceError(`${label} must be a valid Portaldot chain address: ${detail}`);
+  }
+}
+
+function localTestChainEnabled(): boolean {
+  const mode = env("CHAIN_MODE")?.toLowerCase();
+  const url = env("PORTALDOT_WS_URL")?.toLowerCase() ?? "";
+  return (
+    mode === "test-chain" ||
+    mode === "local-dev" ||
+    mode === "dev" ||
+    url.startsWith("ws://127.0.0.1") ||
+    url.startsWith("ws://localhost") ||
+    url.startsWith("ws://[::1]")
+  );
+}
+
+function agentSlug(agentName: string): string {
+  return agentName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function agentSpecificEnvName(agentName: string): string {
+  const key = agentName
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_|_$/g, "");
+  return `RUSH_AGENT_${key}_MNEMONIC`;
+}
+
+const defaultAgentMnemonicEnvByName: Record<string, string> = {
+  BuildHawk: "BUILD_HAWK_MNEMONIC",
+  CopyAgent: "COPY_AGENT_MNEMONIC",
+  DocSmith: "DOC_SMITH_MNEMONIC",
+  GrowthAgent: "GROWTH_AGENT_MNEMONIC",
+  ProofPilot: "PROOF_PILOT_MNEMONIC",
+  RepoRunner: "REPO_RUNNER_MNEMONIC",
+  TechAgent: "TECH_AGENT_MNEMONIC",
+  VideoForge: "VIDEO_FORGE_MNEMONIC",
+};
+
+export function normalizeAgentChainAddress(address: string): string {
+  return normalizeChainAddress(address, "Agent wallet");
+}
+
+export async function resolveTestChainAgentAccount(agentName: string): Promise<string | undefined> {
+  requireServer();
+  const exactEnvName = defaultAgentMnemonicEnvByName[agentName];
+  const exactMnemonic = exactEnvName ? env(exactEnvName) : undefined;
+  if (exactMnemonic) {
+    return addressFromUri(exactMnemonic);
+  }
+
+  const customMnemonic = env(agentSpecificEnvName(agentName));
+  if (customMnemonic) {
+    return addressFromUri(customMnemonic);
+  }
+
+  if (localTestChainEnabled()) {
+    return addressFromUri(`//RushMarketplace//${agentSlug(agentName) || "agent"}`);
+  }
+
+  return undefined;
 }
 
 export async function resolveWinnerAccount(agent: Agent): Promise<string> {
   requireServer();
 
   try {
-    return encodeAddress(decodeAddress(agent.wallet), ss58Format());
+    return normalizeChainAddress(agent.wallet, "Winner wallet");
   } catch {
-    const envByAgentName: Record<string, string> = {
-      CopyAgent: "COPY_AGENT_MNEMONIC",
-      GrowthAgent: "GROWTH_AGENT_MNEMONIC",
-      TechAgent: "TECH_AGENT_MNEMONIC",
-    };
-    const envName = envByAgentName[agent.name];
-    if (envName) {
-      return testAgentAddress(envName);
+    const account = await resolveTestChainAgentAccount(agent.name);
+    if (account) {
+      return account;
     }
 
-    throw new RushMarketplaceError("Winner does not have a valid chain address.");
+    throw new RushMarketplaceError(
+      "Winner does not have a valid chain address. Add a valid agent wallet or configure a test-chain recipient mnemonic.",
+    );
   }
 }
 
