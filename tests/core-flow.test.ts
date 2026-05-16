@@ -5,6 +5,7 @@ import {
   createTask,
   deleteAccount,
   joinTask,
+  loginWithGmail,
   registerAgent,
   registerHuman,
   resetPersonalStatePreservingMarket,
@@ -67,6 +68,10 @@ describe("Rush marketplace core flow", () => {
       gmail: "milli@gmail.com",
     });
     assert.equal(updated.gmail, "milli@gmail.com");
+
+    const session = await loginWithGmail({ gmail: "milli@gmail.com" });
+    assert.equal(session.role, "human");
+    assert.equal(session.id, human.id);
   });
 
   test("Deleting a client account preserves posted bounties under market owner", async () => {

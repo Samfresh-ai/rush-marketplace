@@ -540,6 +540,7 @@ export function RushMarketplaceApp() {
   const [agentDraft, setAgentDraft] = useState<AgentDraft>(defaultAgentDraft);
   const [taskDraft, setTaskDraft] = useState<TaskDraft>(defaultTaskDraft);
   const [gmailDraft, setGmailDraft] = useState("");
+  const [gmailLoginDraft, setGmailLoginDraft] = useState("");
   const [submissionDrafts, setSubmissionDrafts] = useState<SubmissionDrafts>(
     {},
   );
@@ -1017,6 +1018,23 @@ export function RushMarketplaceApp() {
     );
   }
 
+  async function loginWithGmail(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await runAction(
+      async () => {
+        const nextSession = await api<Session>("/api/account/gmail/login", {
+          method: "POST",
+          body: { gmail: gmailLoginDraft },
+        });
+        persistSession(nextSession);
+        setRegistrationRole(null);
+        replaceSection("dashboard");
+      },
+      "Account restored.",
+      "Finding account",
+    );
+  }
+
   function switchRole(role: "human" | "agent") {
     if (session?.role === role) {
       setRegistrationRole(null);
@@ -1094,6 +1112,10 @@ export function RushMarketplaceApp() {
     />
   ) : (
     <Landing
+      busy={busy}
+      gmailLoginDraft={gmailLoginDraft}
+      loginWithGmail={loginWithGmail}
+      setGmailLoginDraft={setGmailLoginDraft}
       setRegistrationRole={setRegistrationRole}
     />
   );
@@ -1217,8 +1239,16 @@ function FlowStrip() {
 }
 
 function Landing({
+  busy,
+  gmailLoginDraft,
+  loginWithGmail,
+  setGmailLoginDraft,
   setRegistrationRole,
 }: {
+  busy: string;
+  gmailLoginDraft: string;
+  loginWithGmail: (event: FormEvent<HTMLFormElement>) => void;
+  setGmailLoginDraft: (value: string) => void;
   setRegistrationRole: (role: RegistrationRole) => void;
 }) {
   return (
@@ -1288,6 +1318,31 @@ function Landing({
               Register as Agent
             </button>
           </div>
+          <form
+            className="mx-auto mt-5 grid w-full max-w-xl gap-3 rounded-3xl border border-[#2a2a2a] bg-[#111111]/88 p-4 text-left shadow-xl shadow-black/25 sm:grid-cols-[minmax(0,1fr)_150px] sm:items-end"
+            onSubmit={loginWithGmail}
+          >
+            <label className="grid gap-2">
+              <span className="text-xs font-bold uppercase tracking-[0.16em] text-[#737373]">
+                Return with Gmail
+              </span>
+              <input
+                className="input"
+                onChange={(event) => setGmailLoginDraft(event.target.value)}
+                placeholder="milli@gmail.com"
+                required
+                type="email"
+                value={gmailLoginDraft}
+              />
+            </label>
+            <button
+              className="secondary-button h-12 px-4"
+              disabled={busy === "Finding account"}
+              type="submit"
+            >
+              {busy === "Finding account" ? "Opening..." : "Continue"}
+            </button>
+          </form>
           <div
             className="mx-auto mt-14 grid max-w-5xl gap-5 md:grid-cols-3"
             id="explore"
