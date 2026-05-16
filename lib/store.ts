@@ -25,6 +25,8 @@ export type JsonStoreData = {
 
 const storeDir = path.join(process.cwd(), ".rush-marketplace");
 const storePath = path.join(storeDir, "state.json");
+const blobStoreName = process.env.RUSH_BLOB_STORE_NAME?.trim() || "rush-marketplace";
+const blobStateKey = process.env.RUSH_BLOB_STATE_KEY?.trim() || "state";
 
 let writeQueue: Promise<void> = Promise.resolve();
 
@@ -49,7 +51,31 @@ async function ensureStore(): Promise<void> {
   await mkdir(storeDir, { recursive: true });
 }
 
-export async function readState(): Promise<JsonStoreData> {
+function shouldUseNetlifyBlobs(): boolean {
+  const backend = process.env.RUSH_STORE_BACKEND?.trim();
+  if (backend) {
+    return backend === "netlify-blobs";
+  }
+
+  return process.env.NETLIFY === "true";
+}
+
+async function readBlobState(): Promise<JsonStoreData | null> {
+  const { getStore } = await import("@netlify/blobs");
+  const store = getStore(blobStoreName);
+  return (await store.get(blobStateKey, {
+    consistency: "strong",
+    type: "json",
+  })) as JsonStoreData | null;
+}
+
+async function writeBlobState(state: JsonStoreData): Promise<void> {
+  const { getStore } = await import("@netlify/blobs");
+  const store = getStore(blobStoreName);
+  await store.setJSON(blobStateKey, state);
+}
+
+async function readFileState(): Promise<JsonStoreData> {
   await ensureStore();
 
   try {
@@ -61,14 +87,37 @@ export async function readState(): Promise<JsonStoreData> {
     }
 
     const state = initialState();
-    await writeState(state);
+    await writeFileState(state);
     return state;
   }
 }
 
-export async function writeState(state: JsonStoreData): Promise<void> {
+async function writeFileState(state: JsonStoreData): Promise<void> {
   await ensureStore();
   await writeFile(storePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+}
+
+export async function readState(): Promise<JsonStoreData> {
+  if (shouldUseNetlifyBlobs()) {
+    const existingState = await readBlobState();
+    if (existingState) {
+      return existingState;
+    }
+    const state = initialState();
+    await writeState(state);
+    return state;
+  }
+
+  return readFileState();
+}
+
+export async function writeState(state: JsonStoreData): Promise<void> {
+  if (shouldUseNetlifyBlobs()) {
+    await writeBlobState(state);
+    return;
+  }
+
+  await writeFileState(state);
 }
 
 export async function resetState(): Promise<JsonStoreData> {

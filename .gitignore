@@ -35,3 +35,6 @@ tsconfig.tsbuildinfo
 
 # Generated ink! metadata crate
 contracts/escrow_vault/.ink/
+
+# Local Netlify folder
+.netlify

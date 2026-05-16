@@ -3,9 +3,10 @@ import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const chainEnabled = process.env.USE_CHAIN?.trim() === "true";
   return NextResponse.json({
     ok: true,
-    mode: process.env.USE_CHAIN?.trim() === "true" ? "test-chain" : "test-chain",
-    chainEnabled: process.env.USE_CHAIN?.trim() === "true",
+    mode: chainEnabled ? "test-chain" : "test-ledger",
+    chainEnabled,
   });
 }
