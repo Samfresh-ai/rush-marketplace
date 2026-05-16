@@ -532,6 +532,7 @@ export function RushMarketplaceApp() {
     useState<RegistrationRole>(null);
   const [activeSection, setActiveSection] =
     useState<ActiveSection>("dashboard");
+  const [sectionHistory, setSectionHistory] = useState<ActiveSection[]>([]);
   const [bountyTypeFilter, setBountyTypeFilter] =
     useState<BountyTypeFilter>("all");
   const [selectedTaskId, setSelectedTaskId] = useState("");
@@ -552,6 +553,34 @@ export function RushMarketplaceApp() {
   function selectTaskId(taskId: string) {
     selectedTaskIdRef.current = taskId;
     setSelectedTaskId(taskId);
+  }
+
+  function replaceSection(section: ActiveSection) {
+    setSectionHistory([]);
+    setActiveSection(section);
+  }
+
+  function navigateToSection(section: ActiveSection) {
+    if (section === activeSection) {
+      return;
+    }
+
+    setSectionHistory((history) => [...history, activeSection].slice(-12));
+    setActiveSection(section);
+  }
+
+  function goBackState() {
+    const previousSection = sectionHistory[sectionHistory.length - 1];
+
+    if (previousSection) {
+      setSectionHistory((history) => history.slice(0, -1));
+      setActiveSection(previousSection);
+      return;
+    }
+
+    if (activeSection !== "dashboard") {
+      setActiveSection("dashboard");
+    }
   }
 
   async function refresh(): Promise<JsonStoreData> {
@@ -678,7 +707,7 @@ export function RushMarketplaceApp() {
     window.localStorage.removeItem(sessionKey);
     setSession(null);
     setRegistrationRole(null);
-    setActiveSection("dashboard");
+    replaceSection("dashboard");
     setNotice(null);
   }
 
@@ -724,7 +753,7 @@ export function RushMarketplaceApp() {
         });
         persistSession({ role: "human", id: created.id, name: created.name });
         setRegistrationRole(null);
-        setActiveSection("dashboard");
+        replaceSection("dashboard");
       },
       `${humanDraft.name} funded with 100 POT.`,
       "Creating client account",
@@ -749,7 +778,7 @@ export function RushMarketplaceApp() {
         });
         persistSession({ role: "agent", id: created.id, name: created.name });
         setRegistrationRole(null);
-        setActiveSection("dashboard");
+        replaceSection("dashboard");
       },
       `${agentDraft.name} registered with 0 POT.`,
       "Registering agent",
@@ -904,7 +933,7 @@ export function RushMarketplaceApp() {
         setState(next);
         selectTaskId(next.tasks[0]?.id ?? "");
         setRegistrationRole(null);
-        setActiveSection("dashboard");
+        replaceSection("dashboard");
       },
       "Test-chain state loaded: typed bounties, proof, review, and payout state.",
       "Seeding full flow",
@@ -922,7 +951,7 @@ export function RushMarketplaceApp() {
         setState(next);
         selectTaskId("");
         setRegistrationRole(null);
-        setActiveSection("dashboard");
+        replaceSection("dashboard");
         setSubmissionDrafts({});
         setHumanDraft(defaultHumanDraft);
         setAgentDraft(defaultAgentDraft);
@@ -936,7 +965,7 @@ export function RushMarketplaceApp() {
   function switchRole(role: "human" | "agent") {
     if (session?.role === role) {
       setRegistrationRole(null);
-      setActiveSection("dashboard");
+      replaceSection("dashboard");
       return;
     }
     setRegistrationRole(role);
@@ -986,7 +1015,9 @@ export function RushMarketplaceApp() {
       session={session}
       resetTestStateUi={resetTestStateUi}
       runFullSeed={runFullSeed}
-      setActiveSection={setActiveSection}
+      canGoBack={sectionHistory.length > 0 || activeSection !== "dashboard"}
+      goBackState={goBackState}
+      setActiveSection={navigateToSection}
       setBountyTypeFilter={setBountyTypeFilter}
       setExpandedSubmissions={setExpandedSubmissions}
       setRegistrationRole={setRegistrationRole}
@@ -1057,6 +1088,31 @@ function NoticeToast({
         </button>
       </div>
     </div>
+  );
+}
+
+function BackStateButton({
+  canGoBack = true,
+  label = "Back",
+  onBack,
+}: {
+  canGoBack?: boolean;
+  label?: string;
+  onBack: () => void;
+}) {
+  return (
+    <button
+      aria-disabled={!canGoBack}
+      className={cx(
+        "secondary-button h-10 px-4 text-sm",
+        !canGoBack && "cursor-not-allowed opacity-45",
+      )}
+      disabled={!canGoBack}
+      onClick={onBack}
+      type="button"
+    >
+      ← {label}
+    </button>
   );
 }
 
@@ -1355,11 +1411,13 @@ function DashboardShell(props: {
   agents: Agent[];
   busy: string;
   bountyTypeFilter: BountyTypeFilter;
+  canGoBack: boolean;
   compete: (task: Task) => void;
   entries: Entry[];
   escrowBalancePot: number;
   expandedSubmissions: ExpandedSubmissions;
   feedFlash: boolean;
+  goBackState: () => void;
   goBackToLanding: () => void;
   human: Human | undefined;
   payouts: JsonStoreData["payouts"];
@@ -1392,11 +1450,13 @@ function DashboardShell(props: {
     agents,
     busy,
     bountyTypeFilter,
+    canGoBack,
     compete,
     entries,
     escrowBalancePot,
     expandedSubmissions,
     feedFlash,
+    goBackState,
     goBackToLanding,
     human,
     payouts,
@@ -1448,26 +1508,27 @@ function DashboardShell(props: {
               </div>
 
               <nav className="flex flex-wrap gap-2" aria-label="Market feeds">
-              <button
-                className={cx(
-                  "secondary-button h-10 px-4 text-sm",
-                  showingBountyFeed && "border-[#7c3aed]/50 bg-[#ede5ff]",
-                )}
-                onClick={() => setActiveSection("dashboard")}
-                type="button"
-              >
-                Bounty Feed
-              </button>
-              <button
-                className={cx(
-                  "secondary-button h-10 px-4 text-sm",
-                  !showingBountyFeed && "border-[#7c3aed]/50 bg-[#ede5ff]",
-                )}
-                onClick={() => setActiveSection("agents")}
-                type="button"
-              >
-                Agent Feed
-              </button>
+                <BackStateButton canGoBack={canGoBack} onBack={goBackState} />
+                <button
+                  className={cx(
+                    "secondary-button h-10 px-4 text-sm",
+                    showingBountyFeed && "border-[#7c3aed]/50 bg-[#ede5ff]",
+                  )}
+                  onClick={() => setActiveSection("dashboard")}
+                  type="button"
+                >
+                  Bounty Feed
+                </button>
+                <button
+                  className={cx(
+                    "secondary-button h-10 px-4 text-sm",
+                    !showingBountyFeed && "border-[#7c3aed]/50 bg-[#ede5ff]",
+                  )}
+                  onClick={() => setActiveSection("agents")}
+                  type="button"
+                >
+                  Agent Feed
+                </button>
               </nav>
             </div>
 
@@ -1690,6 +1751,7 @@ function DashboardShell(props: {
         <header className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <DashboardHero role={session.role} section={profileActiveSection} />
           <div className="flex flex-wrap gap-2">
+            <BackStateButton canGoBack={canGoBack} onBack={goBackState} />
             <button
               className="secondary-button h-10 px-4 text-sm"
               onClick={() => setActiveSection("dashboard")}
@@ -2949,7 +3011,7 @@ function BountyDetailModal({
             onClick={onClose}
             type="button"
           >
-            Close
+            Back to feed
           </button>
         </div>
         <div className="max-h-[calc(100vh-168px)] overflow-y-auto p-5 lg:p-6">
@@ -3209,7 +3271,7 @@ function AgentActionModal({
             onClick={onClose}
             type="button"
           >
-            Close
+            Back to agents
           </button>
         </div>
 
