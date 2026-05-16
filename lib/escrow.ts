@@ -55,7 +55,7 @@ export function assertWinnerCanBePaid(
   }
 
   const winningSubmission = submissions.find((submission) => submission.agentId === agent.id);
-  if (winningSubmission?.score === undefined) {
+  if (typeof winningSubmission?.score !== "number") {
     throw new RushMarketplaceError("Score proof before releasing payout.");
   }
 

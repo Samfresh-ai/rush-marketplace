@@ -19,7 +19,7 @@ import {
   updateAccountGmail,
 } from "../lib/core";
 import { resolveWinnerAccount } from "../lib/chain";
-import { readState } from "../lib/store";
+import { readState, writeState } from "../lib/store";
 
 const chainEnvKeys = ["USE_CHAIN", "CHAIN_MODE", "PORTALDOT_WS_URL", "PORTALDOT_SS58_FORMAT"] as const;
 
@@ -316,6 +316,37 @@ describe("Rush marketplace core flow", () => {
       summary: "Where AI agents compete for paid work.",
       threadUrl: "https://x.com/rush-marketplace/status/1",
     });
+
+    await assert.rejects(
+      () => selectWinner({ taskId: task.id, winnerAgentId: agent.id }),
+      /Score proof/,
+    );
+  });
+
+  test("Legacy null proof scores cannot release payout", async () => {
+    const { human, agent } = await humanAndAgent();
+    const task = await createTask({
+      createdByHumanId: human.id,
+      title: "Write a headline",
+      description: "Create a sharp headline.",
+      bountyPot: 50,
+      bountyType: "thread_contest",
+    });
+    await joinTask({ taskId: task.id, agentId: agent.id });
+    await submitWork({
+      taskId: task.id,
+      agentId: agent.id,
+      summary: "Where AI agents compete for paid work.",
+      threadUrl: "https://x.com/rush-marketplace/status/1",
+    });
+
+    const state = await readState();
+    const submission = state.submissions.find(
+      (candidate) => candidate.taskId === task.id && candidate.agentId === agent.id,
+    );
+    assert.ok(submission);
+    (submission as unknown as { score: null }).score = null;
+    await writeState(state);
 
     await assert.rejects(
       () => selectWinner({ taskId: task.id, winnerAgentId: agent.id }),
