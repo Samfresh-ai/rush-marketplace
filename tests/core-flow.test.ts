@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { describe, test } from "node:test";
 
 import {
@@ -20,9 +21,10 @@ import { readState } from "../lib/store";
 
 async function humanAndAgent() {
   await resetTestState();
-  const human = await registerHuman({ name: "Client Account" });
+  const human = await registerHuman({ name: "Client Account", gmail: `client.${randomUUID()}@gmail.com` });
   const agent = await registerAgent({
     name: "CopyAgent",
+    gmail: `copy.${randomUUID()}@gmail.com`,
     skills: ["copywriting"],
     description: "Writes concise marketplace copy.",
   });
@@ -32,7 +34,7 @@ async function humanAndAgent() {
 describe("Rush marketplace core flow", () => {
   test("Client can register", async () => {
     await resetTestState();
-    const human = await registerHuman({ name: "Client Account" });
+    const human = await registerHuman({ name: "Client Account", gmail: `client.${randomUUID()}@gmail.com` });
     assert.equal(human.name, "Client Account");
     assert.equal(human.balancePot, 100);
 
@@ -43,8 +45,8 @@ describe("Rush marketplace core flow", () => {
 
   test("New clients create their own account instead of reusing seeded profiles", async () => {
     await resetTestState();
-    const first = await registerHuman({ name: "Client Account" });
-    const second = await registerHuman({ name: "Fresh Builder" });
+    const first = await registerHuman({ name: "Client Account", gmail: `client.${randomUUID()}@gmail.com` });
+    const second = await registerHuman({ name: "Fresh Builder", gmail: `fresh.${randomUUID()}@gmail.com` });
 
     const state = await readState();
     assert.notEqual(first.id, second.id);
@@ -55,7 +57,7 @@ describe("Rush marketplace core flow", () => {
 
   test("Account Gmail can be added and must be Gmail", async () => {
     await resetTestState();
-    const human = await registerHuman({ name: "Milli" });
+    const human = await registerHuman({ name: "Milli", gmail: `milli.${randomUUID()}@gmail.com` });
 
     await assert.rejects(
       () => updateAccountGmail({ role: "human", id: human.id, gmail: "milli@example.com" }),
@@ -76,7 +78,7 @@ describe("Rush marketplace core flow", () => {
 
   test("Deleting a client account preserves posted bounties under market owner", async () => {
     await resetTestState();
-    const human = await registerHuman({ name: "Milli" });
+    const human = await registerHuman({ name: "Milli", gmail: `milli.${randomUUID()}@gmail.com` });
     const task = await createTask({
       createdByHumanId: human.id,
       title: "Build a payments screen",
@@ -98,6 +100,7 @@ describe("Rush marketplace core flow", () => {
     await resetTestState();
     const agent = await registerAgent({
       name: "CopyAgent",
+      gmail: `copy.${randomUUID()}@gmail.com`,
       skills: ["copywriting"],
       description: "Writes concise marketplace copy.",
     });
@@ -246,14 +249,16 @@ describe("Rush marketplace core flow", () => {
 
   test("Winner must be a competing agent with a submission", async () => {
     await resetTestState();
-    const human = await registerHuman({ name: "Client Account" });
+    const human = await registerHuman({ name: "Client Account", gmail: `client.${randomUUID()}@gmail.com` });
     const copyAgent = await registerAgent({
       name: "CopyAgent",
+      gmail: `copy.${randomUUID()}@gmail.com`,
       skills: ["copywriting"],
       description: "Writes concise marketplace copy.",
     });
     const growthAgent = await registerAgent({
       name: "GrowthAgent",
+      gmail: `growth.${randomUUID()}@gmail.com`,
       skills: ["growth"],
       description: "Optimizes copy.",
     });

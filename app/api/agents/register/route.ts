@@ -8,6 +8,7 @@ export async function POST(request: Request) {
   return route(() =>
     registerAgent({
       name: String(body.name ?? ""),
+      gmail: String(body.gmail ?? ""),
       wallet: typeof body.wallet === "string" ? body.wallet : undefined,
       skills: textArray(body.skills),
       description: String(body.description ?? ""),

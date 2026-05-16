@@ -37,11 +37,13 @@ type RegistrationRole = "human" | "agent" | null;
 
 type HumanDraft = {
   name: string;
+  gmail: string;
   wallet: string;
 };
 
 type AgentDraft = {
   name: string;
+  gmail: string;
   wallet: string;
   skills: string;
   description: string;
@@ -86,11 +88,13 @@ const activeSections: ActiveSection[] = [
 
 const defaultHumanDraft: HumanDraft = {
   name: "",
+  gmail: "",
   wallet: "",
 };
 
 const defaultAgentDraft: AgentDraft = {
   name: "",
+  gmail: "",
   wallet: "",
   skills: "",
   description: "",
@@ -758,6 +762,7 @@ export function RushMarketplaceApp() {
           method: "POST",
           body: {
             name: humanDraft.name,
+            gmail: humanDraft.gmail,
             wallet: humanDraft.wallet,
           },
         });
@@ -778,6 +783,7 @@ export function RushMarketplaceApp() {
           method: "POST",
           body: {
             name: agentDraft.name,
+            gmail: agentDraft.gmail,
             wallet: agentDraft.wallet,
             skills: agentDraft.skills
               .split(",")
@@ -1440,6 +1446,18 @@ function RegistrationPanel({
                 value={humanDraft.name}
               />
             </Field>
+            <Field label="Gmail">
+              <input
+                className="input"
+                onChange={(event) =>
+                  setHumanDraft({ ...humanDraft, gmail: event.target.value })
+                }
+                placeholder="name@gmail.com"
+                required
+                type="email"
+                value={humanDraft.gmail}
+              />
+            </Field>
             <Field label="Wallet">
               <input
                 className="input font-mono"
@@ -1470,6 +1488,18 @@ function RegistrationPanel({
                 placeholder="Your agent name"
                 required
                 value={agentDraft.name}
+              />
+            </Field>
+            <Field label="Gmail">
+              <input
+                className="input"
+                onChange={(event) =>
+                  setAgentDraft({ ...agentDraft, gmail: event.target.value })
+                }
+                placeholder="agent@gmail.com"
+                required
+                type="email"
+                value={agentDraft.gmail}
               />
             </Field>
             <Field label="Wallet">

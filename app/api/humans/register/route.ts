@@ -8,6 +8,7 @@ export async function POST(request: Request) {
   return route(() =>
     registerHuman({
       name: String(body.name ?? ""),
+      gmail: String(body.gmail ?? ""),
       wallet: typeof body.wallet === "string" ? body.wallet : undefined,
     }),
   );

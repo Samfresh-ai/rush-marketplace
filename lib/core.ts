@@ -21,11 +21,13 @@ import { readState, resetState, updateState, writeState, type JsonStoreData } fr
 
 type RegisterHumanInput = {
   name: string;
+  gmail: string;
   wallet?: string;
 };
 
 type RegisterAgentInput = {
   name: string;
+  gmail: string;
   wallet?: string;
   skills: string[];
   description: string;
@@ -283,6 +285,22 @@ function recalculateHumanBalance(state: JsonStoreData): void {
     .reduce((sum, human) => sum + human.balancePot, 0);
 }
 
+function assertGmailAvailable(
+  state: JsonStoreData,
+  gmail: string,
+  accountId?: string,
+): void {
+  const duplicateHuman = state.humans.find(
+    (human) => !human.system && human.id !== accountId && human.gmail === gmail,
+  );
+  const duplicateAgent = state.agents.find(
+    (agent) => !agent.deleted && agent.id !== accountId && agent.gmail === gmail,
+  );
+  if (duplicateHuman || duplicateAgent) {
+    throw new RushMarketplaceError("That Gmail is already attached to another account.");
+  }
+}
+
 export async function getState(): Promise<JsonStoreData> {
   return readState();
 }
@@ -321,10 +339,13 @@ export async function resetPersonalStatePreservingMarket(): Promise<JsonStoreDat
 export async function registerHuman(input: RegisterHumanInput): Promise<Human> {
   return updateState((state) => {
     const name = requireText(input.name, "Client name");
+    const gmail = requireGmail(input.gmail);
+    assertGmailAvailable(state, gmail);
 
     const human: Human = {
       id: id("human"),
       name,
+      gmail,
       wallet: input.wallet ? requireText(input.wallet, "Client wallet") : walletFor(name),
       balancePot: 100,
       createdAt: now(),
@@ -349,6 +370,8 @@ export async function registerAgent(input: RegisterAgentInput): Promise<Agent> {
     if (state.agents.some((agent) => agent.name === name)) {
       throw new RushMarketplaceError("Agent name already registered.");
     }
+    const gmail = requireGmail(input.gmail);
+    assertGmailAvailable(state, gmail);
 
     const skills = input.skills.map((skill) => requireText(skill, "Agent skill"));
     if (skills.length === 0) {
@@ -358,6 +381,7 @@ export async function registerAgent(input: RegisterAgentInput): Promise<Agent> {
     const agent: Agent = {
       id: id("agent"),
       name,
+      gmail,
       wallet: input.wallet ? requireText(input.wallet, "Agent wallet") : walletFor(name),
       skills,
       description: requireText(input.description, "Agent description"),
@@ -382,15 +406,7 @@ export async function updateAccountGmail(input: UpdateGmailInput): Promise<Human
   return updateState((state) => {
     const accountId = requireText(input.id, "Account id");
     const gmail = requireGmail(input.gmail);
-    const duplicateHuman = state.humans.find(
-      (human) => !human.system && human.id !== accountId && human.gmail === gmail,
-    );
-    const duplicateAgent = state.agents.find(
-      (agent) => !agent.deleted && agent.id !== accountId && agent.gmail === gmail,
-    );
-    if (duplicateHuman || duplicateAgent) {
-      throw new RushMarketplaceError("That Gmail is already attached to another account.");
-    }
+    assertGmailAvailable(state, gmail, accountId);
 
     if (input.role === "human") {
       const human = findHuman(state, accountId);
@@ -723,34 +739,40 @@ export async function selectWinner(input: SelectWinnerInput): Promise<Payout> {
 
 export async function runCoreLoop(): Promise<JsonStoreData> {
   await resetTestState();
-  const human = await registerHuman({ name: "Client Account" });
+  const human = await registerHuman({ name: "Client Account", gmail: "client.account@gmail.com" });
   const growthAgent = await registerAgent({
     name: "GrowthAgent",
+    gmail: "growthagent@gmail.com",
     skills: ["launch", "threads", "positioning"],
     description: "Turns product ideas into clear launch copy and creator assets.",
   });
   const buildHawk = await registerAgent({
     name: "BuildHawk",
+    gmail: "buildhawk@gmail.com",
     skills: ["react", "github", "product engineering"],
     description: "Ships small product features and PR fixes with proof.",
   });
   const proofPilot = await registerAgent({
     name: "ProofPilot",
+    gmail: "proofpilot@gmail.com",
     skills: ["qa", "proof review", "edge cases"],
     description: "Checks work against the brief and documents what actually runs.",
   });
   const videoForge = await registerAgent({
     name: "VideoForge",
+    gmail: "videoforge@gmail.com",
     skills: ["video", "storyboard", "voiceover"],
     description: "Produces concise explainer videos and proof clips.",
   });
   const docSmith = await registerAgent({
     name: "DocSmith",
+    gmail: "docsmith@gmail.com",
     skills: ["docs", "writing", "technical editing"],
     description: "Writes clear docs, blog posts, and proof pages.",
   });
   const repoRunner = await registerAgent({
     name: "RepoRunner",
+    gmail: "reporunner@gmail.com",
     skills: ["pr review", "tests", "automation"],
     description: "Handles GitHub issues, patches, and test evidence.",
   });
