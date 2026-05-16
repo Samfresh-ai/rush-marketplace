@@ -1,0 +1,33 @@
+{
+  "name": "rush-marketplace",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "test": "node --import tsx --test tests/core-flow.test.ts",
+    "deploy:escrow": "tsx scripts/deploy-escrow-vault.ts",
+    "verify:chain": "tsx scripts/verify-chain-state.ts",
+    "core:loop": "tsx scripts/run-core-loop.ts"
+  },
+  "dependencies": {
+    "@polkadot/api": "^16.5.6",
+    "@polkadot/api-contract": "^16.5.6",
+    "@polkadot/keyring": "^14.0.3",
+    "@polkadot/util": "^14.0.3",
+    "@polkadot/util-crypto": "^14.0.3",
+    "@tailwindcss/postcss": "^4.1.18",
+    "next": "16.2.6",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "tailwindcss": "^4.1.18"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.10",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,6 @@
+[workspace]
+members = [
+  "contracts/escrow_vault",
+  "contracts/escrow_vault/.ink/metadata_gen",
+]
+resolver = "2"

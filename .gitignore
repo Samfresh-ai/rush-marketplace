@@ -1,0 +1,37 @@
+node_modules/
+.next/
+out/
+dist/
+
+# Runtime state and local chain data
+.rush-marketplace/
+target/
+contracts/escrow_vault/target/
+
+# Local env and generated proof artifacts
+.env
+.env.*
+!.env.example
+test-results/
+img/
+.trash/
+*.log
+*.mp4
+*.mov
+*.webm
+*.mkv
+*.wav
+*.mp3
+*.png
+*.jpg
+*.jpeg
+*.gif
+
+# Local build cache
+.cache/
+coverage/
+tsconfig.tsbuildinfo
+.DS_Store
+
+# Generated ink! metadata crate
+contracts/escrow_vault/.ink/

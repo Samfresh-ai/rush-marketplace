@@ -1,0 +1,278 @@
+import assert from "node:assert/strict";
+import { describe, test } from "node:test";
+
+import {
+  createTask,
+  joinTask,
+  registerAgent,
+  registerHuman,
+  resetTestState,
+  runCoreLoop,
+  scoreSubmission,
+  selectWinner,
+  submitWork,
+} from "../lib/core";
+import { readState } from "../lib/store";
+
+async function humanAndAgent() {
+  await resetTestState();
+  const human = await registerHuman({ name: "Client Account" });
+  const agent = await registerAgent({
+    name: "CopyAgent",
+    skills: ["copywriting"],
+    description: "Writes concise marketplace copy.",
+  });
+  return { human, agent };
+}
+
+describe("Rush marketplace core flow", () => {
+  test("Client can register", async () => {
+    await resetTestState();
+    const human = await registerHuman({ name: "Client Account" });
+    assert.equal(human.name, "Client Account");
+    assert.equal(human.balancePot, 100);
+
+    const state = await readState();
+    assert.equal(state.humans.length, 1);
+    assert.equal(state.escrow.humanBalancePot, 100);
+  });
+
+  test("New clients create their own account instead of reusing seeded profiles", async () => {
+    await resetTestState();
+    const first = await registerHuman({ name: "Client Account" });
+    const second = await registerHuman({ name: "Fresh Builder" });
+
+    const state = await readState();
+    assert.notEqual(first.id, second.id);
+    assert.equal(state.humans.length, 2);
+    assert.equal(state.humans[1].name, "Fresh Builder");
+    assert.equal(state.escrow.humanBalancePot, 200);
+  });
+
+  test("Agent can register", async () => {
+    await resetTestState();
+    const agent = await registerAgent({
+      name: "CopyAgent",
+      skills: ["copywriting"],
+      description: "Writes concise marketplace copy.",
+    });
+    assert.equal(agent.name, "CopyAgent");
+    assert.equal(agent.balancePot, 0);
+
+    const state = await readState();
+    assert.equal(state.agents.length, 1);
+    assert.equal(state.escrow.agentBalances[agent.id], 0);
+  });
+
+  test("Client can post task and bounty locks in escrow", async () => {
+    const { human } = await humanAndAgent();
+    const task = await createTask({
+      createdByHumanId: human.id,
+      title: "Write a landing page headline for Rush",
+      description: "Create a sharp headline.",
+      bountyPot: 50,
+      bountyType: "thread_contest",
+    });
+
+    const state = await readState();
+    assert.equal(task.status, "open");
+    assert.equal(state.humans[0].balancePot, 50);
+    assert.equal(state.escrow.humanBalancePot, 50);
+    assert.equal(state.escrow.escrowBalancePot, 50);
+  });
+
+  test("Agent can join task", async () => {
+    const { human, agent } = await humanAndAgent();
+    const task = await createTask({
+      createdByHumanId: human.id,
+      title: "Write a headline",
+      description: "Create a sharp headline.",
+      bountyPot: 50,
+      bountyType: "thread_contest",
+    });
+    const entry = await joinTask({ taskId: task.id, agentId: agent.id });
+
+    assert.equal(entry.taskId, task.id);
+    assert.equal(entry.agentId, agent.id);
+    assert.equal(entry.status, "joined");
+  });
+
+  test("Agent can submit work", async () => {
+    const { human, agent } = await humanAndAgent();
+    const task = await createTask({
+      createdByHumanId: human.id,
+      title: "Write a headline",
+      description: "Create a sharp headline.",
+      bountyPot: 50,
+      bountyType: "thread_contest",
+    });
+    await joinTask({ taskId: task.id, agentId: agent.id });
+    const submission = await submitWork({
+      taskId: task.id,
+      agentId: agent.id,
+      summary: "Where AI agents compete for paid work.",
+      threadUrl: "https://x.com/rush-marketplace/status/1",
+    });
+
+    assert.equal(submission.taskId, task.id);
+    assert.equal(submission.agentId, agent.id);
+    assert.equal(submission.summary, "Where AI agents compete for paid work.");
+    assert.equal(submission.threadUrl, "https://x.com/rush-marketplace/status/1");
+  });
+
+  test("Submission templates enforce required fields by bounty type", async () => {
+    const { human, agent } = await humanAndAgent();
+    const task = await createTask({
+      createdByHumanId: human.id,
+      title: "Fix a wallet issue",
+      description: "Open a PR that fixes the bug.",
+      bountyPot: 20,
+      bountyType: "pr_bounty",
+    });
+    await joinTask({ taskId: task.id, agentId: agent.id });
+
+    await assert.rejects(
+      () =>
+        submitWork({
+          taskId: task.id,
+          agentId: agent.id,
+          summary: "Fixed reconnect state.",
+        }),
+      /GitHub PR link/,
+    );
+
+    const submission = await submitWork({
+      taskId: task.id,
+      agentId: agent.id,
+      githubPrUrl: "https://github.com/rush-marketplace/proof-loop/pull/44",
+    });
+
+    assert.equal(submission.githubPrUrl, "https://github.com/rush-marketplace/proof-loop/pull/44");
+    assert.match(submission.content, /PR: https:\/\/github\.com\/rush-marketplace\/proof-loop\/pull\/44/);
+  });
+
+  test("Reviewer can score submissions", async () => {
+    const { human, agent } = await humanAndAgent();
+    const task = await createTask({
+      createdByHumanId: human.id,
+      title: "Write a headline",
+      description: "Create a sharp headline.",
+      bountyPot: 50,
+      bountyType: "thread_contest",
+    });
+    await joinTask({ taskId: task.id, agentId: agent.id });
+    await submitWork({
+      taskId: task.id,
+      agentId: agent.id,
+      summary: "Where AI agents compete for paid work.",
+      threadUrl: "https://x.com/rush-marketplace/status/1",
+    });
+    const scored = await scoreSubmission({
+      taskId: task.id,
+      agentId: agent.id,
+      score: 86,
+      reviewerNotes: "Clear and direct.",
+      reviewerRecommendation: agent.id,
+    });
+
+    assert.equal(scored.score, 86);
+    assert.equal(scored.reviewerNotes, "Clear and direct.");
+    const state = await readState();
+    assert.equal(state.tasks[0].reviewerRecommendation, agent.id);
+    assert.equal(state.tasks[0].status, "reviewed");
+  });
+
+  test("Cannot select winner before proof exists", async () => {
+    const { human, agent } = await humanAndAgent();
+    const task = await createTask({
+      createdByHumanId: human.id,
+      title: "Write a headline",
+      description: "Create a sharp headline.",
+      bountyPot: 50,
+      bountyType: "thread_contest",
+    });
+    await joinTask({ taskId: task.id, agentId: agent.id });
+
+    await assert.rejects(
+      () => selectWinner({ taskId: task.id, winnerAgentId: agent.id }),
+      /proof exists/,
+    );
+  });
+
+  test("Winner must be a competing agent with a submission", async () => {
+    await resetTestState();
+    const human = await registerHuman({ name: "Client Account" });
+    const copyAgent = await registerAgent({
+      name: "CopyAgent",
+      skills: ["copywriting"],
+      description: "Writes concise marketplace copy.",
+    });
+    const growthAgent = await registerAgent({
+      name: "GrowthAgent",
+      skills: ["growth"],
+      description: "Optimizes copy.",
+    });
+    const task = await createTask({
+      createdByHumanId: human.id,
+      title: "Write a headline",
+      description: "Create a sharp headline.",
+      bountyPot: 50,
+      bountyType: "thread_contest",
+    });
+    await joinTask({ taskId: task.id, agentId: copyAgent.id });
+    await submitWork({
+      taskId: task.id,
+      agentId: copyAgent.id,
+      summary: "Where AI agents compete for paid work.",
+      threadUrl: "https://x.com/rush-marketplace/status/1",
+    });
+
+    await assert.rejects(
+      () => selectWinner({ taskId: task.id, winnerAgentId: growthAgent.id }),
+      /competing agent/,
+    );
+  });
+
+  test("Payout goes to winner only", async () => {
+    const state = await runCoreLoop();
+    const growthAgent = state.agents.find((agent) => agent.name === "GrowthAgent");
+    const unpaidAgents = state.agents.filter((agent) => agent.name !== "GrowthAgent");
+
+    assert.equal(state.payouts.length, 1);
+    assert.equal(growthAgent?.balancePot, 12);
+    assert.ok(unpaidAgents.every((agent) => agent.balancePot === 0));
+  });
+
+  test("Escrow keeps unpaid bounties locked after the paid test-chain task", async () => {
+    const state = await runCoreLoop();
+    assert.equal(state.escrow.escrowBalancePot, 46);
+  });
+
+  test("Task cannot be paid twice", async () => {
+    const state = await runCoreLoop();
+    const task = state.tasks.find((candidate) => candidate.status === "completed");
+    assert.ok(task);
+    const winnerAgentId = task.winnerAgentId;
+    assert.ok(winnerAgentId);
+
+    await assert.rejects(
+      () => selectWinner({ taskId: task.id, winnerAgentId }),
+      /paid twice/,
+    );
+  });
+
+  test("Full core loop balances match reference dashboard", async () => {
+    const state = await runCoreLoop();
+    const balance = (name: string) =>
+      state.humans.find((human) => human.name === name)?.balancePot ??
+      state.agents.find((agent) => agent.name === name)?.balancePot;
+
+    assert.equal(balance("Client Account"), 42);
+    assert.equal(state.escrow.escrowBalancePot, 46);
+    assert.equal(balance("GrowthAgent"), 12);
+    assert.equal(state.tasks.length, 6);
+    assert.equal(state.submissions.length, 12);
+    assert.equal(state.payouts.length, 1);
+    assert.equal(state.events.length, 57);
+  });
+});
