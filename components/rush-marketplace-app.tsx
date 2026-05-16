@@ -545,6 +545,7 @@ export function RushMarketplaceApp() {
   const [taskDraft, setTaskDraft] = useState<TaskDraft>(defaultTaskDraft);
   const [gmailDraft, setGmailDraft] = useState("");
   const [gmailLoginDraft, setGmailLoginDraft] = useState("");
+  const [gmailLoginRole, setGmailLoginRole] = useState<"human" | "agent">("human");
   const [submissionDrafts, setSubmissionDrafts] = useState<SubmissionDrafts>(
     {},
   );
@@ -1030,7 +1031,7 @@ export function RushMarketplaceApp() {
       async () => {
         const nextSession = await api<Session>("/api/account/gmail/login", {
           method: "POST",
-          body: { gmail: gmailLoginDraft },
+          body: { gmail: gmailLoginDraft, role: gmailLoginRole },
         });
         persistSession(nextSession);
         setRegistrationRole(null);
@@ -1120,8 +1121,10 @@ export function RushMarketplaceApp() {
     <Landing
       busy={busy}
       gmailLoginDraft={gmailLoginDraft}
+      gmailLoginRole={gmailLoginRole}
       loginWithGmail={loginWithGmail}
       setGmailLoginDraft={setGmailLoginDraft}
+      setGmailLoginRole={setGmailLoginRole}
       setRegistrationRole={setRegistrationRole}
     />
   );
@@ -1247,14 +1250,18 @@ function FlowStrip() {
 function Landing({
   busy,
   gmailLoginDraft,
+  gmailLoginRole,
   loginWithGmail,
   setGmailLoginDraft,
+  setGmailLoginRole,
   setRegistrationRole,
 }: {
   busy: string;
   gmailLoginDraft: string;
+  gmailLoginRole: "human" | "agent";
   loginWithGmail: (event: FormEvent<HTMLFormElement>) => void;
   setGmailLoginDraft: (value: string) => void;
+  setGmailLoginRole: (role: "human" | "agent") => void;
   setRegistrationRole: (role: RegistrationRole) => void;
 }) {
   return (
@@ -1325,7 +1332,7 @@ function Landing({
             </button>
           </div>
           <form
-            className="mx-auto mt-5 grid w-full max-w-xl gap-3 rounded-3xl border border-[#2a2a2a] bg-[#111111]/88 p-4 text-left shadow-xl shadow-black/25 sm:grid-cols-[minmax(0,1fr)_150px] sm:items-end"
+            className="mx-auto mt-5 grid w-full max-w-2xl gap-3 rounded-3xl border border-[#2a2a2a] bg-[#111111]/88 p-4 text-left shadow-xl shadow-black/25 lg:grid-cols-[minmax(0,1fr)_180px_150px] lg:items-end"
             onSubmit={loginWithGmail}
           >
             <label className="grid gap-2">
@@ -1341,6 +1348,28 @@ function Landing({
                 value={gmailLoginDraft}
               />
             </label>
+            <div className="grid gap-2">
+              <span className="text-xs font-bold uppercase tracking-[0.16em] text-[#737373]">
+                Open as
+              </span>
+              <div className="grid grid-cols-2 gap-1 rounded-2xl border border-[#2a2a2a] bg-black/25 p-1">
+                {(["human", "agent"] as const).map((role) => (
+                  <button
+                    className={cx(
+                      "h-10 rounded-xl text-sm font-bold transition",
+                      gmailLoginRole === role
+                        ? "bg-[#f5f5f5] text-black"
+                        : "text-[#a3a3a3] hover:text-white",
+                    )}
+                    key={role}
+                    onClick={() => setGmailLoginRole(role)}
+                    type="button"
+                  >
+                    {role === "human" ? "Client" : "Agent"}
+                  </button>
+                ))}
+              </div>
+            </div>
             <button
               className="secondary-button h-12 px-4"
               disabled={busy === "Finding account"}

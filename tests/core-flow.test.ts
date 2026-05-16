@@ -102,6 +102,42 @@ describe("Rush marketplace core flow", () => {
     assert.equal(session.id, human.id);
   });
 
+  test("Same Gmail can belong to one client and one agent", async () => {
+    await resetTestState();
+    const gmail = `milli.${randomUUID()}@gmail.com`;
+    const human = await registerHuman({ name: "Milli", gmail });
+    const agent = await registerAgent({
+      name: "MilliAgent",
+      gmail,
+      skills: ["build", "proof"],
+      description: "Competes on posted bounties.",
+    });
+
+    await assert.rejects(
+      () => registerHuman({ name: "Milli Two", gmail }),
+      /client account/,
+    );
+    await assert.rejects(
+      () =>
+        registerAgent({
+          name: "MilliAgentTwo",
+          gmail,
+          skills: ["qa"],
+          description: "Second agent with duplicate Gmail.",
+        }),
+      /agent account/,
+    );
+
+    const clientSession = await loginWithGmail({ gmail, role: "human" });
+    const agentSession = await loginWithGmail({ gmail, role: "agent" });
+    assert.deepEqual(clientSession, { role: "human", id: human.id, name: human.name });
+    assert.deepEqual(agentSession, { role: "agent", id: agent.id, name: agent.name });
+    await assert.rejects(
+      () => loginWithGmail({ gmail }),
+      /Choose which one/,
+    );
+  });
+
   test("Deleting a client account preserves posted bounties under market owner", async () => {
     await resetTestState();
     const human = await registerHuman({ name: "Milli", gmail: `milli.${randomUUID()}@gmail.com` });

@@ -85,6 +85,7 @@ type UpdateGmailInput = AccountInput & {
 
 type GmailLoginInput = {
   gmail: string;
+  role?: "human" | "agent";
 };
 
 const marketOwnerId = "human_rush_market";
@@ -301,16 +302,24 @@ function recalculateHumanBalance(state: JsonStoreData): void {
 function assertGmailAvailable(
   state: JsonStoreData,
   gmail: string,
+  role: "human" | "agent",
   accountId?: string,
 ): void {
-  const duplicateHuman = state.humans.find(
-    (human) => !human.system && human.id !== accountId && human.gmail === gmail,
-  );
+  if (role === "human") {
+    const duplicateHuman = state.humans.find(
+      (human) => !human.system && human.id !== accountId && human.gmail === gmail,
+    );
+    if (duplicateHuman) {
+      throw new RushMarketplaceError("That Gmail is already attached to another client account.");
+    }
+    return;
+  }
+
   const duplicateAgent = state.agents.find(
     (agent) => !agent.deleted && agent.id !== accountId && agent.gmail === gmail,
   );
-  if (duplicateHuman || duplicateAgent) {
-    throw new RushMarketplaceError("That Gmail is already attached to another account.");
+  if (duplicateAgent) {
+    throw new RushMarketplaceError("That Gmail is already attached to another agent account.");
   }
 }
 
@@ -353,7 +362,7 @@ export async function registerHuman(input: RegisterHumanInput): Promise<Human> {
   return updateState((state) => {
     const name = requireText(input.name, "Client name");
     const gmail = requireGmail(input.gmail);
-    assertGmailAvailable(state, gmail);
+    assertGmailAvailable(state, gmail, "human");
 
     const human: Human = {
       id: id("human"),
@@ -384,7 +393,7 @@ export async function registerAgent(input: RegisterAgentInput): Promise<Agent> {
       throw new RushMarketplaceError("Agent name already registered.");
     }
     const gmail = requireGmail(input.gmail);
-    assertGmailAvailable(state, gmail);
+    assertGmailAvailable(state, gmail, "agent");
 
     const skills = input.skills.map((skill) => requireText(skill, "Agent skill"));
     if (skills.length === 0) {
@@ -419,7 +428,7 @@ export async function updateAccountGmail(input: UpdateGmailInput): Promise<Human
   return updateState((state) => {
     const accountId = requireText(input.id, "Account id");
     const gmail = requireGmail(input.gmail);
-    assertGmailAvailable(state, gmail, accountId);
+    assertGmailAvailable(state, gmail, input.role, accountId);
 
     if (input.role === "human") {
       const human = findHuman(state, accountId);
@@ -453,13 +462,32 @@ export async function loginWithGmail(input: GmailLoginInput): Promise<{
   const human = state.humans.find(
     (candidate) => !candidate.system && candidate.gmail === gmail,
   );
+  const agent = state.agents.find(
+    (candidate) => !candidate.deleted && candidate.gmail === gmail,
+  );
+
+  if (input.role === "human") {
+    if (!human) {
+      throw new RushMarketplaceError("No client account is attached to that Gmail.", 404);
+    }
+    return { role: "human", id: human.id, name: human.name };
+  }
+
+  if (input.role === "agent") {
+    if (!agent) {
+      throw new RushMarketplaceError("No agent account is attached to that Gmail.", 404);
+    }
+    return { role: "agent", id: agent.id, name: agent.name };
+  }
+
+  if (human && agent) {
+    throw new RushMarketplaceError("That Gmail has both client and agent accounts. Choose which one to open.");
+  }
+
   if (human) {
     return { role: "human", id: human.id, name: human.name };
   }
 
-  const agent = state.agents.find(
-    (candidate) => !candidate.deleted && candidate.gmail === gmail,
-  );
   if (agent) {
     return { role: "agent", id: agent.id, name: agent.name };
   }
