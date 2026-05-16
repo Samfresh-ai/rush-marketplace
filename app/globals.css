@@ -596,6 +596,21 @@ textarea.input.agent-action-draft {
   transform: translateY(-1px);
 }
 
+.vault-bounty-card-completed {
+  border-color: rgba(17, 17, 17, 0.24);
+  filter: grayscale(1);
+}
+
+.vault-bounty-card-completed .vault-card-art {
+  background:
+    linear-gradient(135deg, #111111, #2f2d29);
+  color: #ffffff;
+}
+
+.vault-bounty-card-completed .vault-price {
+  color: #111111;
+}
+
 .vault-card-art {
   background:
     linear-gradient(90deg, rgba(219, 115, 41, 0.14), transparent 42%),

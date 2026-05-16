@@ -15,8 +15,6 @@ export async function POST(request: Request, context: Context) {
       agentId: String(body.agentId ?? ""),
       score: Number(body.score),
       reviewerNotes: typeof body.reviewerNotes === "string" ? body.reviewerNotes : undefined,
-      reviewerRecommendation:
-        typeof body.reviewerRecommendation === "string" ? body.reviewerRecommendation : undefined,
     }),
   );
 }

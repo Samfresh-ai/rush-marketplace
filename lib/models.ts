@@ -36,7 +36,6 @@ export type Task = {
   status: string;
   createdByHumanId: string;
   winnerAgentId?: string;
-  reviewerRecommendation?: string;
   lockTxHash?: string;
   chainTaskId?: string;
   createdAt: string;

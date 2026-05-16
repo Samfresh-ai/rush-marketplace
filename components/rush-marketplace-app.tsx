@@ -194,7 +194,7 @@ function statusLabel(status: string): string {
 
 function statusClass(status: string): string {
   if (status === "completed") {
-    return "border-[#14532d]/35 bg-[#14532d]/10 text-[#14532d]";
+    return "border-white/20 bg-black text-white";
   }
 
   if (status === "open") {
@@ -351,7 +351,7 @@ function submissionStatus(task: Task, submission: Submission): string {
     return task.winnerAgentId === submission.agentId ? "Won" : "Lost";
   }
 
-  return submission.score === undefined
+  return typeof submission.score !== "number"
     ? "Awaiting score"
     : `Scored ${submission.score}/100`;
 }
@@ -370,9 +370,9 @@ function paymentStatus(task: Task, payouts: JsonStoreData["payouts"]): {
     };
   }
 
-  if (task.status === "reviewed" || task.reviewerRecommendation) {
+  if (task.status === "reviewed") {
     return {
-      label: "Review complete",
+      label: "Scored",
       detail: `${task.bountyPot} POT remains locked until winner release.`,
       tone: "review",
     };
@@ -395,46 +395,6 @@ function paymentToneClass(tone: "locked" | "review" | "paid"): string {
   }
 
   return "border-[#7c3aed]/25 bg-[#ede5ff] text-[#5b21b6]";
-}
-
-function reviewerScore(agent: Agent | undefined, content: string): number {
-  if (agent?.name === "CopyAgent") {
-    return 86;
-  }
-
-  if (agent?.name === "GrowthAgent") {
-    return 94;
-  }
-
-  if (agent?.name === "TechAgent") {
-    return 81;
-  }
-
-  const lengthBonus = Math.min(14, Math.floor(content.length / 24));
-  const skillBonus = agent?.skills.some((skill) =>
-    /growth|position|copy/i.test(skill),
-  )
-    ? 8
-    : 4;
-  return Math.min(96, 72 + lengthBonus + skillBonus);
-}
-
-function reviewerNotes(agent: Agent | undefined, score: number): string {
-  if (agent?.name === "GrowthAgent") {
-    return "Best fit for the product promise.";
-  }
-
-  if (agent?.name === "CopyAgent") {
-    return "Clear and direct.";
-  }
-
-  if (agent?.name === "TechAgent") {
-    return "Accurate but too technical.";
-  }
-
-  return score >= 90
-    ? "Strongest proof for the bounty."
-    : "Useful proof with room to sharpen.";
 }
 
 function bountyTypeLabel(task: Task): string {
@@ -872,52 +832,33 @@ export function RushMarketplaceApp() {
     );
   }
 
-  async function scoreAllSubmissions(task: Task) {
-    const taskSubmissions = submissions.filter(
-      (submission) => submission.taskId === task.id,
-    );
-    if (taskSubmissions.length === 0) {
+  async function scoreSubmissionManually(
+    task: Task,
+    submission: Submission,
+    score: number,
+    reviewerNotes: string,
+  ) {
+    if (!Number.isFinite(score) || score < 0 || score > 100) {
       setNotice({
-        tone: "info",
-        text: "No proof has been submitted for this bounty yet.",
+        tone: "error",
+        text: "Score must be a number between 0 and 100.",
       });
       return;
     }
 
-    const scored = taskSubmissions.map((submission) => {
-      const submissionAgent = agents.find(
-        (item) => item.id === submission.agentId,
-      );
-      const score = reviewerScore(submissionAgent, submission.content);
-      return {
-        agentId: submission.agentId,
-        notes: reviewerNotes(submissionAgent, score),
-        score,
-      };
-    });
-    const recommended = scored.reduce((best, item) =>
-      item.score > best.score ? item : best,
-    );
-
     await runAction(
       async () => {
-        for (const item of scored) {
-          await api(`/api/tasks/${task.id}/score`, {
-            method: "POST",
-            body: {
-              agentId: item.agentId,
-              score: item.score,
-              reviewerNotes: item.notes,
-              reviewerRecommendation:
-                item.agentId === recommended.agentId
-                  ? recommended.agentId
-                  : undefined,
-            },
-          });
-        }
+        await api(`/api/tasks/${task.id}/score`, {
+          method: "POST",
+          body: {
+            agentId: submission.agentId,
+            score,
+            reviewerNotes: reviewerNotes.trim() || undefined,
+          },
+        });
       },
-      `${formatAgent(recommended.agentId, agents)} recommended by reviewer.`,
-      "Scoring proof",
+      `Score saved for ${formatAgent(submission.agentId, agents)}.`,
+      "Saving score",
     );
   }
 
@@ -1091,7 +1032,7 @@ export function RushMarketplaceApp() {
       human={human}
       payouts={payouts}
       postTask={postTask}
-      scoreAllSubmissions={scoreAllSubmissions}
+      scoreSubmissionManually={scoreSubmissionManually}
       selectedTask={selectedTask}
       selectWinner={selectWinner}
       session={session}
@@ -1600,7 +1541,7 @@ function DashboardShell(props: {
   human: Human | undefined;
   payouts: JsonStoreData["payouts"];
   postTask: (event: FormEvent<HTMLFormElement>) => void;
-  scoreAllSubmissions: (task: Task) => void;
+  scoreSubmissionManually: (task: Task, submission: Submission, score: number, reviewerNotes: string) => void;
   selectedTask: Task | undefined;
   selectWinner: (task: Task, agentId: string) => void;
   session: Session;
@@ -1643,7 +1584,7 @@ function DashboardShell(props: {
     human,
     payouts,
     postTask,
-    scoreAllSubmissions,
+    scoreSubmissionManually,
     selectedTask,
     selectWinner,
     session,
@@ -1699,10 +1640,18 @@ function DashboardShell(props: {
   const agentPayouts = agent
     ? payouts.filter((payout) => payout.winnerAgentId === agent.id)
     : [];
+  const agentTaskIds = new Set([
+    ...agentEntries.map((entry) => entry.taskId),
+    ...agentSubmissions.map((submission) => submission.taskId),
+    ...agentPayouts.map((payout) => payout.taskId),
+  ]);
+  const agentTasks = agent
+    ? tasks.filter((task) => agentTaskIds.has(task.id))
+    : [];
   const agentEvents = agent
     ? state.events.filter((event) => event.agentId === agent.id)
     : [];
-  const scopedTasks = session.role === "human" ? humanTasks : tasks;
+  const scopedTasks = session.role === "human" ? humanTasks : agentTasks;
   const scopedEntries = session.role === "human" ? humanEntries : agentEntries;
   const scopedSubmissions =
     session.role === "human" ? humanSubmissions : agentSubmissions;
@@ -1713,7 +1662,9 @@ function DashboardShell(props: {
       ? humanTasks
           .filter((task) => task.status !== "completed")
           .reduce((sum, task) => sum + task.bountyPot, 0)
-      : escrowBalancePot;
+      : agentTasks
+          .filter((task) => task.status !== "completed")
+          .reduce((sum, task) => sum + task.bountyPot, 0);
   const scopedPaidPot = scopedPayouts.reduce(
     (sum, payout) => sum + payout.amountPot,
     0,
@@ -2031,7 +1982,7 @@ function DashboardShell(props: {
               openTaskSubmissions={openTaskSubmissions}
               payouts={humanPayouts}
               postTask={postTask}
-              scoreAllSubmissions={scoreAllSubmissions}
+              scoreSubmissionManually={scoreSubmissionManually}
               selectedTask={scopedSelectedTask}
               selectWinner={selectWinner}
               setExpandedSubmissions={setExpandedSubmissions}
@@ -2048,7 +1999,7 @@ function DashboardShell(props: {
             <PayoutWorkspace
               agents={agents}
               payouts={scopedPayouts}
-              tasks={session.role === "human" ? humanTasks : tasks}
+              tasks={scopedTasks}
             />
           ) : null}
 
@@ -2085,6 +2036,7 @@ function DashboardShell(props: {
               escrowBalancePot={scopedEscrowBalancePot}
               human={human}
               payouts={scopedPayouts}
+              role={session.role}
               submissions={scopedSubmissions}
               tasks={scopedTasks}
             />
@@ -2475,7 +2427,7 @@ function HumanDashboard({
   openTaskSubmissions,
   payouts,
   postTask,
-  scoreAllSubmissions,
+  scoreSubmissionManually,
   selectedTask,
   selectWinner,
   setExpandedSubmissions,
@@ -2494,7 +2446,7 @@ function HumanDashboard({
   openTaskSubmissions: (taskId: string) => void;
   payouts: JsonStoreData["payouts"];
   postTask: (event: FormEvent<HTMLFormElement>) => void;
-  scoreAllSubmissions: (task: Task) => void;
+  scoreSubmissionManually: (task: Task, submission: Submission, score: number, reviewerNotes: string) => void;
   selectedTask: Task | undefined;
   selectWinner: (task: Task, agentId: string) => void;
   setExpandedSubmissions: (drafts: ExpandedSubmissions) => void;
@@ -2536,7 +2488,7 @@ function HumanDashboard({
           entries={entries}
           expandedSubmissions={expandedSubmissions}
           payouts={payouts}
-          scoreAllSubmissions={scoreAllSubmissions}
+          scoreSubmissionManually={scoreSubmissionManually}
           selectedTask={selectedTask}
           selectWinner={selectWinner}
           setExpandedSubmissions={setExpandedSubmissions}
@@ -2715,6 +2667,7 @@ function PaymentStatusCard({
 }) {
   const status = paymentStatus(task, payouts);
   const payout = payouts.find((item) => item.taskId === task.id);
+  const scored = task.status === "reviewed" || task.status === "completed";
   const steps = [
     {
       label: "Bounty",
@@ -2730,11 +2683,9 @@ function PaymentStatusCard({
     },
     {
       label: "Review",
-      value: task.reviewerRecommendation ? "Ready" : "Pending",
-      detail: task.reviewerRecommendation
-        ? "Reviewer recommendation set"
-        : `${competitors} entrants to evaluate`,
-      active: Boolean(task.reviewerRecommendation),
+      value: scored ? "Scored" : "Manual",
+      detail: scored ? "Client score saved" : `${competitors} entrants to evaluate`,
+      active: scored,
     },
     {
       label: "Payout",
@@ -2941,8 +2892,16 @@ function BountyBoard({
   submitWork: (task: Task) => void;
   tasks: Task[];
 }) {
-  const openTasks = tasks.filter((task) => task.status === "open");
-  const filteredTasks = openTasks.filter(
+  const visibleTasks = [...tasks].sort((a, b) => {
+    if (a.status === "completed" && b.status !== "completed") {
+      return 1;
+    }
+    if (a.status !== "completed" && b.status === "completed") {
+      return -1;
+    }
+    return Date.parse(b.createdAt) - Date.parse(a.createdAt);
+  });
+  const filteredTasks = visibleTasks.filter(
     (task) => bountyTypeFilter === "all" || getBountyConfig(task.bountyType).type === bountyTypeFilter,
   );
   const selectedBoardTask =
@@ -3051,6 +3010,15 @@ function BountyBoard({
         {sessionRole === "agent" ? (
           !agent ? (
             <EmptyState text="Create an agent profile to enter this bounty." />
+          ) : task.status === "completed" && !submission ? (
+            <div className="grid gap-3 rounded-2xl border border-[#111111] bg-black p-4 text-white">
+              <span className="status-badge w-fit border-white/20 bg-black text-white">
+                Completed
+              </span>
+              <p className="text-sm leading-6 text-[#d4d4d4]">
+                This bounty is paid and kept on the board as proof history.
+              </p>
+            </div>
           ) : !entry ? (
             <button className="primary-button h-11 w-full px-4" onClick={() => compete(task)} type="button">
               Enter bounty
@@ -3105,13 +3073,13 @@ function BountyBoard({
               Bounty board
             </p>
             <h2 className="mt-2 text-2xl font-bold tracking-tight text-[#f5f5f5]">
-              Open work with Portaldot escrow
+              Bounties with Portaldot escrow
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-[#a3a3a3]">
-              Open a card to inspect proof fields, lock status, and payment path.
+              Open a card to inspect proof fields, lock status, and payment path. Completed bounties stay visible.
             </p>
           </div>
-          <span className="pot-badge w-fit">{filteredTasks.length} open</span>
+          <span className="pot-badge w-fit">{filteredTasks.length} listed</span>
         </div>
 
         <div className="mt-5 flex flex-wrap gap-2">
@@ -3151,7 +3119,7 @@ function BountyBoard({
               </button>
             }
             text="Try another bounty type or return to the full board."
-            title="No open bounties match this filter"
+            title="No bounties match this filter"
           />
         ) : (
           <div className="vault-grid">
@@ -3163,7 +3131,14 @@ function BountyBoard({
               const payStatus = paymentStatus(task, payouts);
 
               return (
-                <article className={cx("vault-card vault-bounty-card", isSelected && "vault-bounty-card-active")} key={task.id}>
+                <article
+                  className={cx(
+                    "vault-card vault-bounty-card",
+                    task.status === "completed" && "vault-bounty-card-completed",
+                    isSelected && "vault-bounty-card-active",
+                  )}
+                  key={task.id}
+                >
                   <button
                     className="vault-card-open"
                     onClick={() => openBounty(task)}
@@ -3576,7 +3551,7 @@ function SubmissionsWorkspace({
   entries,
   expandedSubmissions,
   payouts,
-  scoreAllSubmissions,
+  scoreSubmissionManually,
   selectedTask,
   selectWinner,
   setExpandedSubmissions,
@@ -3588,7 +3563,7 @@ function SubmissionsWorkspace({
   entries: Entry[];
   expandedSubmissions: ExpandedSubmissions;
   payouts: JsonStoreData["payouts"];
-  scoreAllSubmissions: (task: Task) => void;
+  scoreSubmissionManually: (task: Task, submission: Submission, score: number, reviewerNotes: string) => void;
   selectedTask: Task | undefined;
   selectWinner: (task: Task, agentId: string) => void;
   setExpandedSubmissions: (drafts: ExpandedSubmissions) => void;
@@ -3692,7 +3667,7 @@ function SubmissionsWorkspace({
           entries={entries}
           expandedSubmissions={expandedSubmissions}
           payouts={payouts}
-          scoreAllSubmissions={scoreAllSubmissions}
+          scoreSubmissionManually={scoreSubmissionManually}
           selectWinner={selectWinner}
           setExpandedSubmissions={setExpandedSubmissions}
           submissions={submissions}
@@ -3708,7 +3683,7 @@ function CompetitionPanel({
   entries,
   expandedSubmissions,
   payouts,
-  scoreAllSubmissions,
+  scoreSubmissionManually,
   selectWinner,
   setExpandedSubmissions,
   submissions,
@@ -3718,7 +3693,7 @@ function CompetitionPanel({
   entries: Entry[];
   expandedSubmissions: ExpandedSubmissions;
   payouts: JsonStoreData["payouts"];
-  scoreAllSubmissions: (task: Task) => void;
+  scoreSubmissionManually: (task: Task, submission: Submission, score: number, reviewerNotes: string) => void;
   selectWinner: (task: Task, agentId: string) => void;
   setExpandedSubmissions: (drafts: ExpandedSubmissions) => void;
   submissions: Submission[];
@@ -3732,9 +3707,6 @@ function CompetitionPanel({
   const competingAgents = taskEntries
     .map((entry) => agents.find((agent) => agent.id === entry.agentId))
     .filter((item): item is Agent => Boolean(item));
-  const allScored =
-    taskSubmissions.length > 0 &&
-    taskSubmissions.every((submission) => submission.score !== undefined);
   const currentPaymentStatus = paymentStatus(task, payouts);
 
   return (
@@ -3837,16 +3809,9 @@ function CompetitionPanel({
             <h3 className="text-sm font-bold uppercase tracking-wide text-[#a3a3a3]">
               Scores & Review
             </h3>
-            <button
-              className="secondary-button h-9 w-full px-3"
-              disabled={
-                taskSubmissions.length === 0 || task.status === "completed"
-              }
-              onClick={() => scoreAllSubmissions(task)}
-              type="button"
-            >
-              Score proof
-            </button>
+            <p className="text-sm leading-6 text-[#737373]">
+              Manual review only. Enter the score and notes yourself, then release payout when ready.
+            </p>
           </div>
           <div className="review-card-list mt-4">
             {taskSubmissions.length === 0 ? (
@@ -3855,91 +3820,154 @@ function CompetitionPanel({
                 title="Waiting for proof"
               />
             ) : (
-              taskSubmissions.map((submission) => {
-                const isRecommended =
-                  task.reviewerRecommendation === submission.agentId;
-                const isWinner = task.winnerAgentId === submission.agentId;
-                const canReleasePayout = submission.score !== undefined;
-                return (
-                  <div
-                    className={cx(
-                      "review-row-card",
-                      isWinner
-                        ? "border-[#14532d]/70 shadow-lg shadow-[0_0_30px_rgba(20,83,45,0.15)]"
-                        : isRecommended
-                          ? "border-[#f59e0b]/60"
-                          : "border-[#2a2a2a]",
-                    )}
-                    key={submission.id}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-semibold text-[#f5f5f5]">
-                          {formatAgent(submission.agentId, agents)}
-                        </p>
-                        {isRecommended ? (
-                          <span className="mt-2 inline-flex rounded-full border border-[#f59e0b]/30 bg-[#f59e0b]/10 px-2 py-1 text-xs font-semibold text-[#fbbf24]">
-                            Recommended
-                          </span>
-                        ) : null}
-                      </div>
-                      <span
-                        className={cx(
-                          "submission-score-badge",
-                          submission.score !== undefined &&
-                            "submission-score-badge-scored",
-                        )}
-                      >
-                        {submission.score ?? "--"}/100
-                      </span>
-                    </div>
-                    <p className="mt-3 text-sm leading-6 text-[#a3a3a3]">
-                      {submission.reviewerNotes ??
-                        (allScored
-                          ? "No reviewer notes."
-                          : "Awaiting reviewer score.")}
-                    </p>
-                    {task.status === "completed" ? (
-                      <p
-                        className={cx(
-                          "mt-3 text-sm font-semibold",
-                          isWinner ? "text-[#14532d]" : "text-[#a3a3a3]",
-                        )}
-                      >
-                        {isWinner
-                          ? `Best proof paid ${task.bountyPot} POT`
-                          : "Not selected"}
-                      </p>
-                    ) : (
-                      <div className="mt-4 grid gap-2">
-                        <button
-                          className={cx(
-                            "h-10 rounded-xl px-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45",
-                            isRecommended
-                              ? "bg-[#f59e0b] text-black"
-                              : "bg-[#7c3aed] text-white",
-                          )}
-                          disabled={!canReleasePayout}
-                          onClick={() => selectWinner(task, submission.agentId)}
-                          type="button"
-                        >
-                          Release payout
-                        </button>
-                        {!canReleasePayout ? (
-                          <p className="text-xs font-semibold text-[#737373]">
-                            Score proof before payout.
-                          </p>
-                        ) : null}
-                      </div>
-                    )}
-                  </div>
-                );
-              })
+              taskSubmissions.map((submission) => (
+                <ScoreReviewCard
+                  agents={agents}
+                  key={submission.id}
+                  scoreSubmissionManually={scoreSubmissionManually}
+                  selectWinner={selectWinner}
+                  submission={submission}
+                  task={task}
+                />
+              ))
             )}
           </div>
         </div>
       </div>
     </section>
+  );
+}
+
+function ScoreReviewCard({
+  agents,
+  scoreSubmissionManually,
+  selectWinner,
+  submission,
+  task,
+}: {
+  agents: Agent[];
+  scoreSubmissionManually: (task: Task, submission: Submission, score: number, reviewerNotes: string) => void;
+  selectWinner: (task: Task, agentId: string) => void;
+  submission: Submission;
+  task: Task;
+}) {
+  const [scoreDraft, setScoreDraft] = useState(
+    typeof submission.score === "number" ? String(submission.score) : "",
+  );
+  const [notesDraft, setNotesDraft] = useState(submission.reviewerNotes ?? "");
+  const isWinner = task.winnerAgentId === submission.agentId;
+  const hasScore = typeof submission.score === "number";
+  const scoreNumber = Number(scoreDraft);
+
+  useEffect(() => {
+    setScoreDraft(typeof submission.score === "number" ? String(submission.score) : "");
+    setNotesDraft(submission.reviewerNotes ?? "");
+  }, [submission.id, submission.reviewerNotes, submission.score]);
+
+  return (
+    <article
+      className={cx(
+        "review-row-card",
+        isWinner
+          ? "border-white/35 bg-black text-white shadow-lg shadow-black/20"
+          : "border-[#2a2a2a]",
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="font-semibold text-[#f5f5f5]">
+            {formatAgent(submission.agentId, agents)}
+          </p>
+          <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#737373]">
+            Manual score
+          </p>
+        </div>
+        <span
+          className={cx(
+            "submission-score-badge",
+            hasScore && "submission-score-badge-scored",
+          )}
+        >
+          {hasScore ? submission.score : "--"}/100
+        </span>
+      </div>
+
+      <form
+        className="mt-4 grid gap-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          scoreSubmissionManually(task, submission, scoreNumber, notesDraft);
+        }}
+      >
+        <div className="grid gap-3 sm:grid-cols-[110px_minmax(0,1fr)]">
+          <label className="grid gap-2">
+            <span className="text-xs font-bold uppercase tracking-[0.16em] text-[#737373]">
+              Score
+            </span>
+            <input
+              className="input"
+              disabled={task.status === "completed"}
+              max={100}
+              min={0}
+              onChange={(event) => setScoreDraft(event.target.value)}
+              placeholder="0-100"
+              required
+              type="number"
+              value={scoreDraft}
+            />
+          </label>
+          <label className="grid gap-2">
+            <span className="text-xs font-bold uppercase tracking-[0.16em] text-[#737373]">
+              Review notes
+            </span>
+            <input
+              className="input"
+              disabled={task.status === "completed"}
+              onChange={(event) => setNotesDraft(event.target.value)}
+              placeholder="What did the proof show?"
+              type="text"
+              value={notesDraft}
+            />
+          </label>
+        </div>
+
+        {submission.reviewerNotes ? (
+          <p className="text-sm leading-6 text-[#a3a3a3]">
+            {submission.reviewerNotes}
+          </p>
+        ) : null}
+
+        {task.status === "completed" ? (
+          <p
+            className={cx(
+              "text-sm font-semibold",
+              isWinner ? "text-white" : "text-[#a3a3a3]",
+            )}
+          >
+            {isWinner ? `Paid ${task.bountyPot} POT` : "Not selected"}
+          </p>
+        ) : (
+          <div className="grid gap-2 sm:grid-cols-2">
+            <button className="secondary-button h-10 px-3" type="submit">
+              Score proof
+            </button>
+            <button
+              className="h-10 rounded-xl bg-black px-3 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-45"
+              disabled={!hasScore}
+              onClick={() => selectWinner(task, submission.agentId)}
+              type="button"
+            >
+              Release payout
+            </button>
+          </div>
+        )}
+        {!hasScore && task.status !== "completed" ? (
+          <p className="text-xs font-semibold text-[#737373]">
+            Score this proof before payout release.
+          </p>
+        ) : null}
+      </form>
+    </article>
   );
 }
 
@@ -3957,7 +3985,6 @@ function SubmissionCard({
   task: Task;
 }) {
   const agent = agents.find((item) => item.id === submission.agentId);
-  const isRecommended = task.reviewerRecommendation === submission.agentId;
   const isWinner = task.winnerAgentId === submission.agentId;
   const links = submissionLinks(submission);
   const preview = submission.summary ?? submission.content;
@@ -3973,11 +4000,7 @@ function SubmissionCard({
     <article
       className={cx(
         "review-row-card",
-        isWinner
-          ? "border-[#14532d]/70"
-          : isRecommended
-            ? "border-[#f59e0b]/60"
-            : "border-[#2a2a2a]",
+        isWinner ? "border-white/35 bg-black text-white" : "border-[#2a2a2a]",
         task.status === "completed" && !isWinner && "opacity-55",
       )}
     >
@@ -3994,11 +4017,6 @@ function SubmissionCard({
             ))}
           </div>
         </div>
-        {isRecommended ? (
-          <span className="rounded-full border border-[#f59e0b]/30 bg-[#f59e0b]/10 px-2 py-1 text-xs font-semibold text-[#fbbf24]">
-            Recommended
-          </span>
-        ) : null}
       </div>
       <button
         className="submission-preview-toggle"
@@ -4515,6 +4533,7 @@ function AnalyticsPanel({
   escrowBalancePot,
   human,
   payouts,
+  role,
   submissions,
   tasks,
 }: {
@@ -4523,12 +4542,13 @@ function AnalyticsPanel({
   escrowBalancePot: number;
   human: Human | undefined;
   payouts: JsonStoreData["payouts"];
+  role: "human" | "agent";
   submissions: Submission[];
   tasks: Task[];
 }) {
   const paidPot = payouts.reduce((sum, payout) => sum + payout.amountPot, 0);
   const scoredCount = submissions.filter(
-    (submission) => submission.score !== undefined,
+    (submission) => typeof submission.score === "number",
   ).length;
   const completedCount = tasks.filter(
     (task) => task.status === "completed",
@@ -4536,31 +4556,54 @@ function AnalyticsPanel({
   const openCount = tasks.filter(
     (task) => task.status === "open" || task.status === "reviewed",
   ).length;
-  const topAgents = [...agents]
-    .sort((a, b) => b.balancePot - a.balancePot)
-    .slice(0, 4);
-  const metrics = [
-    {
-      label: "Open / review tasks",
-      value: openCount,
-      detail: `${tasks.length} total`,
-    },
-    {
-      label: "Competitor joins",
-      value: entries.length,
-      detail: "agent entries",
-    },
-    {
-      label: "Scored proof",
-      value: scoredCount,
-      detail: `${submissions.length} proof records`,
-    },
-    {
-      label: "Completed payouts",
-      value: completedCount,
-      detail: `${paidPot} POT paid`,
-    },
-  ];
+  const metrics =
+    role === "agent"
+      ? [
+          {
+            label: "Bounties entered",
+            value: entries.length,
+            detail: `${tasks.length} related bounties`,
+          },
+          {
+            label: "Proof submitted",
+            value: submissions.length,
+            detail: `${scoredCount} scored`,
+          },
+          {
+            label: "Paid wins",
+            value: payouts.length,
+            detail: `${paidPot} POT earned`,
+          },
+          {
+            label: "Active reviews",
+            value: openCount,
+            detail: "not paid yet",
+          },
+        ]
+      : [
+          {
+            label: "Posted bounties",
+            value: tasks.length,
+            detail: `${openCount} open or scored`,
+          },
+          {
+            label: "Proof received",
+            value: submissions.length,
+            detail: `${entries.length} agent entries`,
+          },
+          {
+            label: "Scored proof",
+            value: scoredCount,
+            detail: "manual client scores",
+          },
+          {
+            label: "Released payouts",
+            value: completedCount,
+            detail: `${paidPot} POT paid`,
+          },
+        ];
+  const sideTitle = role === "agent" ? "Agent payout record" : "Agent payouts";
+  const ledgerTitle = role === "agent" ? "Agent proof ledger" : "Client bounty ledger";
 
   return (
     <div className="grid gap-6">
@@ -4577,10 +4620,16 @@ function AnalyticsPanel({
       </section>
       <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="panel">
-          <h2 className="text-xl font-bold text-[#f5f5f5]">Bounty Flow</h2>
+          <h2 className="text-xl font-bold text-[#f5f5f5]">{ledgerTitle}</h2>
           <div className="mt-5 grid gap-3">
             {tasks.length === 0 ? (
-              <EmptyState text="No task data yet." />
+              <EmptyState
+                text={
+                  role === "agent"
+                    ? "Enter a bounty or submit proof to build an agent record."
+                    : "Post a bounty to build a client ledger."
+                }
+              />
             ) : (
               tasks.map((task) => {
                 const taskEntries = entries.filter(
@@ -4623,9 +4672,18 @@ function AnalyticsPanel({
           </div>
         </div>
         <div className="panel">
-          <h2 className="text-xl font-bold text-[#f5f5f5]">Agent Earnings</h2>
+          <h2 className="text-xl font-bold text-[#f5f5f5]">{sideTitle}</h2>
           <div className="mt-5 grid gap-3">
-            {topAgents.map((agent) => (
+            {agents.length === 0 ? (
+              <EmptyState
+                text={
+                  role === "agent"
+                    ? "No payout record for this agent yet."
+                    : "No agents have touched these bounties yet."
+                }
+              />
+            ) : (
+              agents.map((agent) => (
               <div
                 className="rounded-2xl border border-[#2a2a2a] bg-[#111111] p-4"
                 key={agent.id}
@@ -4644,17 +4702,20 @@ function AnalyticsPanel({
                   </p>
                 </div>
               </div>
-            ))}
-            <div className="rounded-2xl border border-[#2a2a2a] bg-[#0f0f0f] p-4 text-sm text-[#a3a3a3]">
-              Client available:{" "}
-              <span className="font-semibold text-[#f5f5f5]">
-                {human?.balancePot ?? 0} POT
-              </span>{" "}
-              · Bounty locked:{" "}
-              <span className="font-semibold text-[#f5f5f5]">
-                {escrowBalancePot} POT
-              </span>
-            </div>
+              ))
+            )}
+            {role === "human" ? (
+              <div className="rounded-2xl border border-[#2a2a2a] bg-[#0f0f0f] p-4 text-sm text-[#a3a3a3]">
+                Client balance:{" "}
+                <span className="font-semibold text-[#f5f5f5]">
+                  {human?.balancePot ?? 0} POT
+                </span>{" "}
+                · Unreleased escrow:{" "}
+                <span className="font-semibold text-[#f5f5f5]">
+                  {escrowBalancePot} POT
+                </span>
+              </div>
+            ) : null}
           </div>
         </div>
       </section>

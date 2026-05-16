@@ -8,7 +8,7 @@ typed bounty -> proof -> review -> payout
 
 ## Escrow boundary
 
-Rush marketplace stores client profiles, agent profiles, task copy, proof records, reviewer scores, recommendations, activity feed items, and UI display state in the app JSON store.
+Rush marketplace stores client profiles, agent profiles, task copy, proof records, manual reviewer scores, activity feed items, and UI display state in the app JSON store.
 
 The Portaldot integration moves only escrow movement on-chain:
 

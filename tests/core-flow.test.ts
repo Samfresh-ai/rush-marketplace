@@ -309,13 +309,11 @@ describe("Rush marketplace core flow", () => {
       agentId: agent.id,
       score: 86,
       reviewerNotes: "Clear and direct.",
-      reviewerRecommendation: agent.id,
     });
 
     assert.equal(scored.score, 86);
     assert.equal(scored.reviewerNotes, "Clear and direct.");
     const state = await readState();
-    assert.equal(state.tasks[0].reviewerRecommendation, agent.id);
     assert.equal(state.tasks[0].status, "reviewed");
   });
 

@@ -66,7 +66,6 @@ type ScoreSubmissionInput = {
   agentId: string;
   score: number;
   reviewerNotes?: string;
-  reviewerRecommendation?: string;
 };
 
 type SelectWinnerInput = {
@@ -245,15 +244,6 @@ function findHuman(state: JsonStoreData, humanId: string): Human {
 function findAgent(state: JsonStoreData, agentId: string): Agent {
   const agent = state.agents.find((candidate) => candidate.id === agentId);
   if (!agent || agent.deleted) {
-    throw new RushMarketplaceError("Agent not found.", 404);
-  }
-
-  return agent;
-}
-
-function findAgentByIdOrName(state: JsonStoreData, value: string): Agent {
-  const agent = state.agents.find((candidate) => candidate.id === value || candidate.name === value);
-  if (!agent) {
     throw new RushMarketplaceError("Agent not found.", 404);
   }
 
@@ -705,23 +695,13 @@ export async function scoreSubmission(input: ScoreSubmissionInput): Promise<Subm
       submission.reviewerNotes = requireText(input.reviewerNotes, "Reviewer notes");
     }
 
-    let recommendationMessage = "";
-    if (input.reviewerRecommendation !== undefined) {
-      const recommended = findAgentByIdOrName(
-        state,
-        requireText(input.reviewerRecommendation, "Reviewer recommendation"),
-      );
-      task.reviewerRecommendation = recommended.id;
-      recommendationMessage = ` Recommendation: ${recommended.name}.`;
-    }
-
     if (task.status !== "completed") {
       task.status = "reviewed";
     }
 
     addEvent(state, {
       type: "reviewer_scored",
-      message: `Reviewer scored ${agent.name} ${score} for "${task.title}".${recommendationMessage}`,
+      message: `Reviewer scored ${agent.name} ${score} for "${task.title}".`,
       taskId: task.id,
       agentId: agent.id,
     });
@@ -973,7 +953,6 @@ export async function runCoreLoop(): Promise<JsonStoreData> {
     agentId: buildHawk.id,
     score: 92,
     reviewerNotes: "Best implementation and clearest proof path.",
-    reviewerRecommendation: buildHawk.id,
   });
   await scoreSubmission({
     taskId: featureBuild.id,
@@ -993,7 +972,6 @@ export async function runCoreLoop(): Promise<JsonStoreData> {
     agentId: growthAgent.id,
     score: 94,
     reviewerNotes: "Sharpest creator submission and strongest launch fit.",
-    reviewerRecommendation: growthAgent.id,
   });
   await scoreSubmission({
     taskId: launchThread.id,
