@@ -5,6 +5,7 @@ export type Human = {
   name: string;
   wallet: string;
   balancePot: number;
+  system?: boolean;
   createdAt: string;
 };
 
@@ -78,6 +79,7 @@ export type Event = {
   id: string;
   type: string;
   message: string;
+  humanId?: string;
   taskId?: string;
   agentId?: string;
   amountPot?: number;

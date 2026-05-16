@@ -580,7 +580,10 @@ export function RushMarketplaceApp() {
 
     if (activeSection !== "dashboard") {
       setActiveSection("dashboard");
+      return;
     }
+
+    showLanding();
   }
 
   async function refresh(): Promise<JsonStoreData> {
@@ -659,7 +662,7 @@ export function RushMarketplaceApp() {
 
     const exists =
       session.role === "human"
-        ? state.humans.some((human) => human.id === session.id)
+        ? state.humans.some((human) => human.id === session.id && !human.system)
         : state.agents.some((agent) => agent.id === session.id);
 
     if (!exists) {
@@ -678,7 +681,7 @@ export function RushMarketplaceApp() {
     return () => window.clearTimeout(timeout);
   }, [notice]);
 
-  const humans = state?.humans ?? [];
+  const humans = (state?.humans ?? []).filter((item) => !item.system);
   const agents = state?.agents ?? [];
   const tasks = state?.tasks ?? [];
   const entries = state?.entries ?? [];
@@ -922,20 +925,14 @@ export function RushMarketplaceApp() {
         const next = await api<JsonStoreData>("/api/test-chain/run", {
           method: "POST",
         });
-        const clientAccount = next.humans[0];
-        if (clientAccount) {
-          persistSession({
-            role: "human",
-            id: clientAccount.id,
-            name: clientAccount.name,
-          });
-        }
+        window.localStorage.removeItem(sessionKey);
+        setSession(null);
         setState(next);
         selectTaskId(next.tasks[0]?.id ?? "");
         setRegistrationRole(null);
         replaceSection("dashboard");
       },
-      "Test-chain state loaded: typed bounties, proof, review, and payout state.",
+      "Test-chain market loaded. Create your own account to inspect personal state.",
       "Seeding full flow",
     );
   }
@@ -957,7 +954,7 @@ export function RushMarketplaceApp() {
         setAgentDraft(defaultAgentDraft);
         setTaskDraft(defaultTaskDraft);
       },
-      "Test-chain state reset. Create a client account to begin.",
+      "Personal state reset. Bounty and agent listings stayed available.",
       "Resetting state",
     );
   }
@@ -1015,7 +1012,7 @@ export function RushMarketplaceApp() {
       session={session}
       resetTestStateUi={resetTestStateUi}
       runFullSeed={runFullSeed}
-      canGoBack={sectionHistory.length > 0 || activeSection !== "dashboard"}
+      canGoBack={true}
       goBackState={goBackState}
       setActiveSection={navigateToSection}
       setBountyTypeFilter={setBountyTypeFilter}
@@ -1095,16 +1092,19 @@ function BackStateButton({
   canGoBack = true,
   label = "Back",
   onBack,
+  size = "default",
 }: {
   canGoBack?: boolean;
   label?: string;
   onBack: () => void;
+  size?: "default" | "small";
 }) {
   return (
     <button
       aria-disabled={!canGoBack}
       className={cx(
-        "secondary-button h-10 px-4 text-sm",
+        "secondary-button",
+        size === "small" ? "h-8 px-3 text-xs" : "h-10 px-4 text-sm",
         !canGoBack && "cursor-not-allowed opacity-45",
       )}
       disabled={!canGoBack}
@@ -1488,6 +1488,64 @@ function DashboardShell(props: {
   const wins = agent
     ? payouts.filter((payout) => payout.winnerAgentId === agent.id).length
     : 0;
+  const humanTasks = human
+    ? tasks.filter((task) => task.createdByHumanId === human.id)
+    : [];
+  const humanTaskIds = new Set(humanTasks.map((task) => task.id));
+  const humanEntries = entries.filter((entry) =>
+    humanTaskIds.has(entry.taskId),
+  );
+  const humanSubmissions = submissions.filter((submission) =>
+    humanTaskIds.has(submission.taskId),
+  );
+  const humanPayouts = payouts.filter((payout) =>
+    humanTaskIds.has(payout.taskId),
+  );
+  const humanEvents = state.events.filter(
+    (event) =>
+      event.humanId === human?.id ||
+      (event.taskId ? humanTaskIds.has(event.taskId) : false),
+  );
+  const agentEntries = agent
+    ? entries.filter((entry) => entry.agentId === agent.id)
+    : [];
+  const agentSubmissions = agent
+    ? submissions.filter((submission) => submission.agentId === agent.id)
+    : [];
+  const agentPayouts = agent
+    ? payouts.filter((payout) => payout.winnerAgentId === agent.id)
+    : [];
+  const agentEvents = agent
+    ? state.events.filter((event) => event.agentId === agent.id)
+    : [];
+  const scopedTasks = session.role === "human" ? humanTasks : tasks;
+  const scopedEntries = session.role === "human" ? humanEntries : agentEntries;
+  const scopedSubmissions =
+    session.role === "human" ? humanSubmissions : agentSubmissions;
+  const scopedPayouts = session.role === "human" ? humanPayouts : agentPayouts;
+  const scopedEvents = session.role === "human" ? humanEvents : agentEvents;
+  const scopedEscrowBalancePot =
+    session.role === "human"
+      ? humanTasks
+          .filter((task) => task.status !== "completed")
+          .reduce((sum, task) => sum + task.bountyPot, 0)
+      : escrowBalancePot;
+  const scopedPaidPot = scopedPayouts.reduce(
+    (sum, payout) => sum + payout.amountPot,
+    0,
+  );
+  const scopedAgents = agents.filter((candidate) => {
+    if (session.role === "agent") {
+      return candidate.id === agent?.id;
+    }
+    return (
+      scopedEntries.some((entry) => entry.agentId === candidate.id) ||
+      scopedPayouts.some((payout) => payout.winnerAgentId === candidate.id)
+    );
+  });
+  const scopedSelectedTask =
+    scopedTasks.find((task) => task.id === selectedTask?.id) ??
+    scopedTasks[0];
   const openTaskSubmissions = (taskId: string) => {
     setSelectedTaskId(taskId);
     setActiveSection("submissions");
@@ -1508,7 +1566,6 @@ function DashboardShell(props: {
               </div>
 
               <nav className="flex flex-wrap gap-2" aria-label="Market feeds">
-                <BackStateButton canGoBack={canGoBack} onBack={goBackState} />
                 <button
                   className={cx(
                     "secondary-button h-10 px-4 text-sm",
@@ -1554,6 +1611,13 @@ function DashboardShell(props: {
             <h1 className="mt-2 text-5xl font-black tracking-tight text-[#2f2d29] md:text-7xl">
               {feedTitle}
             </h1>
+            <div className="mt-4">
+              <BackStateButton
+                canGoBack={canGoBack}
+                onBack={goBackState}
+                size="small"
+              />
+            </div>
           </section>
 
           {showingBountyFeed ? (
@@ -1602,18 +1666,18 @@ function DashboardShell(props: {
               {
                 id: "tasks" as const,
                 label: "My Bounties",
-                detail: `${tasks.length}`,
+                detail: `${humanTasks.length}`,
               },
               { id: "create" as const, label: "Post Bounty" },
               {
                 id: "submissions" as const,
                 label: "Proof Review",
-                detail: `${submissions.length}`,
+                detail: `${humanSubmissions.length}`,
               },
             ]
           : []),
-        { id: "payouts", label: "Payouts", detail: `${payouts.length}` },
-        { id: "activity", label: "Activity", detail: `${state.events.length}` },
+        { id: "payouts", label: "Payouts", detail: `${scopedPayouts.length}` },
+        { id: "activity", label: "Activity", detail: `${scopedEvents.length}` },
       ],
     },
     {
@@ -1695,7 +1759,7 @@ function DashboardShell(props: {
             </p>
             {session.role === "human" ? (
               <p className="mt-2 text-sm text-[#a3a3a3]">
-                Bounty locked: {escrowBalancePot} POT
+                Bounty locked: {scopedEscrowBalancePot} POT
               </p>
             ) : (
               <p className="mt-2 text-sm text-[#a3a3a3]">Wins: {wins}</p>
@@ -1765,9 +1829,9 @@ function DashboardShell(props: {
 
         {showBalance ? (
           <BalanceBars
-            agents={agents}
-            escrowBalancePot={escrowBalancePot}
+            escrowBalancePot={scopedEscrowBalancePot}
             human={human}
+            paidPot={scopedPaidPot}
           />
         ) : null}
 
@@ -1777,32 +1841,36 @@ function DashboardShell(props: {
             <HumanDashboard
               activeSection={profileActiveSection}
               agents={agents}
-              entries={entries}
+              entries={humanEntries}
               human={human}
               openTaskSubmissions={openTaskSubmissions}
-              payouts={payouts}
+              payouts={humanPayouts}
               postTask={postTask}
               scoreAllSubmissions={scoreAllSubmissions}
-              selectedTask={selectedTask}
+              selectedTask={scopedSelectedTask}
               selectWinner={selectWinner}
               setExpandedSubmissions={setExpandedSubmissions}
               setSelectedTaskId={setSelectedTaskId}
               setTaskDraft={setTaskDraft}
-              submissions={submissions}
+              submissions={humanSubmissions}
               taskDraft={taskDraft}
-              tasks={tasks}
+              tasks={humanTasks}
               expandedSubmissions={expandedSubmissions}
             />
           ) : null}
 
           {profileActiveSection === "payouts" ? (
-            <PayoutWorkspace agents={agents} payouts={payouts} tasks={tasks} />
+            <PayoutWorkspace
+              agents={agents}
+              payouts={scopedPayouts}
+              tasks={session.role === "human" ? humanTasks : tasks}
+            />
           ) : null}
 
           {profileActiveSection === "activity" ? (
             <PayoutFeed
               agents={agents}
-              events={state.events}
+              events={scopedEvents}
               feedFlash={feedFlash}
             />
           ) : null}
@@ -1810,29 +1878,30 @@ function DashboardShell(props: {
           {profileActiveSection === "profile" ? (
             <ProfilePanel
               agent={agent}
-              agents={agents}
-              entries={entries}
-              escrowBalancePot={escrowBalancePot}
+              agents={scopedAgents}
+              entries={scopedEntries}
+              escrowBalancePot={scopedEscrowBalancePot}
               human={human}
-              payouts={payouts}
-              selectedTask={selectedTask}
+              paidPot={scopedPaidPot}
+              payouts={scopedPayouts}
+              selectedTask={scopedSelectedTask}
               session={session}
               setActiveSection={setActiveSection}
               setSelectedTaskId={setSelectedTaskId}
-              submissions={submissions}
-              tasks={tasks}
+              submissions={scopedSubmissions}
+              tasks={scopedTasks}
             />
           ) : null}
 
           {profileActiveSection === "analytics" ? (
             <AnalyticsPanel
-              agents={agents}
-              entries={entries}
-              escrowBalancePot={escrowBalancePot}
+              agents={scopedAgents}
+              entries={scopedEntries}
+              escrowBalancePot={scopedEscrowBalancePot}
               human={human}
-              payouts={payouts}
-              submissions={submissions}
-              tasks={tasks}
+              payouts={scopedPayouts}
+              submissions={scopedSubmissions}
+              tasks={scopedTasks}
             />
           ) : null}
 
@@ -1934,6 +2003,7 @@ function ProfilePanel({
   entries,
   escrowBalancePot,
   human,
+  paidPot,
   payouts,
   selectedTask,
   session,
@@ -1947,6 +2017,7 @@ function ProfilePanel({
   entries: Entry[];
   escrowBalancePot: number;
   human: Human | undefined;
+  paidPot: number;
   payouts: JsonStoreData["payouts"];
   selectedTask: Task | undefined;
   session: Session;
@@ -2032,9 +2103,9 @@ function ProfilePanel({
       {session.role === "human" ? (
         <>
           <BalanceBars
-            agents={agents}
             escrowBalancePot={escrowBalancePot}
             human={human}
+            paidPot={paidPot}
           />
           <PostedTasksPanel
             entries={entries}
@@ -4088,15 +4159,14 @@ function RawStatePanel({ state }: { state: JsonStoreData }) {
 }
 
 function BalanceBars({
-  agents,
   escrowBalancePot,
   human,
+  paidPot,
 }: {
-  agents: Agent[];
   escrowBalancePot: number;
   human: Human | undefined;
+  paidPot: number;
 }) {
-  const agentTotal = agents.reduce((sum, agent) => sum + agent.balancePot, 0);
   const rows = [
     {
       label: "Client Available",
@@ -4104,7 +4174,7 @@ function BalanceBars({
       color: "bg-[#7c3aed]",
     },
     { label: "Escrow Locked", value: escrowBalancePot, color: "bg-[#f59e0b]" },
-    { label: "Agents Paid", value: agentTotal, color: "bg-[#14532d]" },
+    { label: "Agents Paid", value: paidPot, color: "bg-[#14532d]" },
   ];
   const max = Math.max(100, ...rows.map((row) => row.value));
 

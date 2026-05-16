@@ -17,7 +17,7 @@ import type {
   Submission,
   Task,
 } from "./models";
-import { readState, resetState, updateState, type JsonStoreData } from "./store";
+import { readState, resetState, updateState, writeState, type JsonStoreData } from "./store";
 
 type RegisterHumanInput = {
   name: string;
@@ -238,6 +238,40 @@ export async function resetTestState(): Promise<JsonStoreData> {
   return resetState();
 }
 
+export async function resetPersonalStatePreservingMarket(): Promise<JsonStoreData> {
+  const current = await readState();
+  const marketOwner: Human = {
+    id: "human_rush_market",
+    name: "Rush Market",
+    wallet: "pot_rush_market",
+    balancePot: 0,
+    system: true,
+    createdAt: now(),
+  };
+  const next: JsonStoreData = {
+    humans: current.tasks.length > 0 ? [marketOwner] : [],
+    agents: current.agents,
+    tasks: current.tasks.map((task) => ({
+      ...task,
+      createdByHumanId: marketOwner.id,
+    })),
+    entries: current.entries,
+    submissions: current.submissions,
+    payouts: current.payouts,
+    events: current.events,
+    escrow: {
+      humanBalancePot: 0,
+      escrowBalancePot: current.escrow.escrowBalancePot,
+      agentBalances: Object.fromEntries(
+        current.agents.map((agent) => [agent.id, agent.balancePot]),
+      ),
+    },
+  };
+
+  await writeState(next);
+  return next;
+}
+
 export async function registerHuman(input: RegisterHumanInput): Promise<Human> {
   return updateState((state) => {
     const name = requireText(input.name, "Client name");
@@ -255,6 +289,7 @@ export async function registerHuman(input: RegisterHumanInput): Promise<Human> {
     addEvent(state, {
       type: "human_registered",
       message: "Client account funded with 100 POT.",
+      humanId: human.id,
       amountPot: 100,
     });
 
@@ -363,12 +398,14 @@ export async function createTask(input: CreateTaskInput): Promise<Task> {
     addEvent(state, {
       type: "task_posted",
       message: `Client account posted "${task.title}" for ${task.bountyPot} POT.`,
+      humanId: human.id,
       taskId: task.id,
       amountPot: task.bountyPot,
     });
     addEvent(state, {
       type: "escrow_locked",
       message: `${task.bountyPot} POT locked in escrow for "${task.title}".`,
+      humanId: human.id,
       taskId: task.id,
       amountPot: task.bountyPot,
       txHash: chainLock?.txHash,

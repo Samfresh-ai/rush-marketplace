@@ -1,8 +1,8 @@
 import { route } from "@/lib/api";
-import { resetTestState } from "@/lib/core";
+import { resetPersonalStatePreservingMarket } from "@/lib/core";
 
 export const dynamic = "force-dynamic";
 
 export async function POST() {
-  return route(resetTestState);
+  return route(resetPersonalStatePreservingMarket);
 }

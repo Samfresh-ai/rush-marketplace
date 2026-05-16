@@ -6,6 +6,7 @@ import {
   joinTask,
   registerAgent,
   registerHuman,
+  resetPersonalStatePreservingMarket,
   resetTestState,
   runCoreLoop,
   scoreSubmission,
@@ -274,5 +275,20 @@ describe("Rush marketplace core flow", () => {
     assert.equal(state.submissions.length, 12);
     assert.equal(state.payouts.length, 1);
     assert.equal(state.events.length, 57);
+  });
+
+  test("Reset for the UI keeps market listings but clears client access", async () => {
+    const seeded = await runCoreLoop();
+    const reset = await resetPersonalStatePreservingMarket();
+
+    assert.equal(reset.humans.filter((human) => !human.system).length, 0);
+    assert.equal(reset.humans.filter((human) => human.system).length, 1);
+    assert.equal(reset.agents.length, seeded.agents.length);
+    assert.equal(reset.tasks.length, seeded.tasks.length);
+    assert.ok(reset.tasks.every((task) => task.createdByHumanId === "human_rush_market"));
+    assert.equal(reset.entries.length, seeded.entries.length);
+    assert.equal(reset.submissions.length, seeded.submissions.length);
+    assert.equal(reset.payouts.length, seeded.payouts.length);
+    assert.equal(reset.escrow.humanBalancePot, 0);
   });
 });
