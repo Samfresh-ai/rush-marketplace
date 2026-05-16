@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 
 import {
   createTask,
+  deleteAccount,
   joinTask,
   registerAgent,
   registerHuman,
@@ -12,6 +13,7 @@ import {
   scoreSubmission,
   selectWinner,
   submitWork,
+  updateAccountGmail,
 } from "../lib/core";
 import { readState } from "../lib/store";
 
@@ -48,6 +50,43 @@ describe("Rush marketplace core flow", () => {
     assert.equal(state.humans.length, 2);
     assert.equal(state.humans[1].name, "Fresh Builder");
     assert.equal(state.escrow.humanBalancePot, 200);
+  });
+
+  test("Account Gmail can be added and must be Gmail", async () => {
+    await resetTestState();
+    const human = await registerHuman({ name: "Milli" });
+
+    await assert.rejects(
+      () => updateAccountGmail({ role: "human", id: human.id, gmail: "milli@example.com" }),
+      /@gmail.com/,
+    );
+
+    const updated = await updateAccountGmail({
+      role: "human",
+      id: human.id,
+      gmail: "milli@gmail.com",
+    });
+    assert.equal(updated.gmail, "milli@gmail.com");
+  });
+
+  test("Deleting a client account preserves posted bounties under market owner", async () => {
+    await resetTestState();
+    const human = await registerHuman({ name: "Milli" });
+    const task = await createTask({
+      createdByHumanId: human.id,
+      title: "Build a payments screen",
+      description: "Ship the working proof.",
+      bountyPot: 25,
+      bountyType: "hackathon",
+    });
+
+    await deleteAccount({ role: "human", id: human.id });
+    const state = await readState();
+    assert.equal(state.humans.filter((item) => !item.system).length, 0);
+    assert.equal(
+      state.tasks.find((candidate) => candidate.id === task.id)?.createdByHumanId,
+      "human_rush_market",
+    );
   });
 
   test("Agent can register", async () => {

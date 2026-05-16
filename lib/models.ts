@@ -5,6 +5,7 @@ export type Human = {
   name: string;
   wallet: string;
   balancePot: number;
+  gmail?: string;
   system?: boolean;
   createdAt: string;
 };
@@ -16,6 +17,8 @@ export type Agent = {
   skills: string[];
   description: string;
   balancePot: number;
+  gmail?: string;
+  deleted?: boolean;
   createdAt: string;
 };
 

@@ -72,6 +72,17 @@ type SelectWinnerInput = {
   winnerAgentId: string;
 };
 
+type AccountInput = {
+  role: "human" | "agent";
+  id: string;
+};
+
+type UpdateGmailInput = AccountInput & {
+  gmail: string;
+};
+
+const marketOwnerId = "human_rush_market";
+
 function now(): string {
   return new Date().toISOString();
 }
@@ -107,6 +118,14 @@ function requireNumber(value: unknown, label: string): number {
 
 function optionalText(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function requireGmail(value: unknown): string {
+  const text = requireText(value, "Gmail").toLowerCase();
+  if (!/^[^\s@]+@gmail\.com$/.test(text)) {
+    throw new RushMarketplaceError("Enter a valid Gmail address ending in @gmail.com.");
+  }
+  return text;
 }
 
 function requireHttpUrl(value: unknown, label: string): string {
@@ -196,7 +215,7 @@ function addEvent(
 
 function findHuman(state: JsonStoreData, humanId: string): Human {
   const human = state.humans.find((candidate) => candidate.id === humanId);
-  if (!human) {
+  if (!human || human.system) {
     throw new RushMarketplaceError("Client account not found.", 404);
   }
 
@@ -205,7 +224,7 @@ function findHuman(state: JsonStoreData, humanId: string): Human {
 
 function findAgent(state: JsonStoreData, agentId: string): Agent {
   const agent = state.agents.find((candidate) => candidate.id === agentId);
-  if (!agent) {
+  if (!agent || agent.deleted) {
     throw new RushMarketplaceError("Agent not found.", 404);
   }
 
@@ -230,6 +249,36 @@ function findTask(state: JsonStoreData, taskId: string): Task {
   return task;
 }
 
+function createMarketOwner(): Human {
+  return {
+    id: marketOwnerId,
+    name: "Rush Market",
+    wallet: "pot_rush_market",
+    balancePot: 0,
+    system: true,
+    createdAt: now(),
+  };
+}
+
+function ensureMarketOwner(state: JsonStoreData): Human {
+  const existing = state.humans.find((human) => human.id === marketOwnerId);
+  if (existing) {
+    existing.system = true;
+    existing.balancePot = 0;
+    return existing;
+  }
+
+  const owner = createMarketOwner();
+  state.humans.unshift(owner);
+  return owner;
+}
+
+function recalculateHumanBalance(state: JsonStoreData): void {
+  state.escrow.humanBalancePot = state.humans
+    .filter((human) => !human.system)
+    .reduce((sum, human) => sum + human.balancePot, 0);
+}
+
 export async function getState(): Promise<JsonStoreData> {
   return readState();
 }
@@ -240,14 +289,7 @@ export async function resetTestState(): Promise<JsonStoreData> {
 
 export async function resetPersonalStatePreservingMarket(): Promise<JsonStoreData> {
   const current = await readState();
-  const marketOwner: Human = {
-    id: "human_rush_market",
-    name: "Rush Market",
-    wallet: "pot_rush_market",
-    balancePot: 0,
-    system: true,
-    createdAt: now(),
-  };
+  const marketOwner = createMarketOwner();
   const next: JsonStoreData = {
     humans: current.tasks.length > 0 ? [marketOwner] : [],
     agents: current.agents,
@@ -329,6 +371,68 @@ export async function registerAgent(input: RegisterAgentInput): Promise<Agent> {
     });
 
     return agent;
+  });
+}
+
+export async function updateAccountGmail(input: UpdateGmailInput): Promise<Human | Agent> {
+  return updateState((state) => {
+    const accountId = requireText(input.id, "Account id");
+    const gmail = requireGmail(input.gmail);
+
+    if (input.role === "human") {
+      const human = findHuman(state, accountId);
+      human.gmail = gmail;
+      addEvent(state, {
+        type: "gmail_added",
+        message: "Client Gmail updated.",
+        humanId: human.id,
+      });
+      return human;
+    }
+
+    const agent = findAgent(state, accountId);
+    agent.gmail = gmail;
+    addEvent(state, {
+      type: "gmail_added",
+      message: `${agent.name} Gmail updated.`,
+      agentId: agent.id,
+    });
+    return agent;
+  });
+}
+
+export async function deleteAccount(input: AccountInput): Promise<{ ok: true }> {
+  return updateState((state) => {
+    const accountId = requireText(input.id, "Account id");
+
+    if (input.role === "human") {
+      const human = findHuman(state, accountId);
+      const marketOwner = ensureMarketOwner(state);
+      for (const task of state.tasks) {
+        if (task.createdByHumanId === human.id) {
+          task.createdByHumanId = marketOwner.id;
+        }
+      }
+      state.humans = state.humans.filter((candidate) => candidate.id !== human.id);
+      recalculateHumanBalance(state);
+      addEvent(state, {
+        type: "account_deleted",
+        message: "Client account deleted; posted bounties remain in the public market.",
+        humanId: human.id,
+      });
+      return { ok: true };
+    }
+
+    const agent = findAgent(state, accountId);
+    agent.deleted = true;
+    agent.gmail = undefined;
+    agent.description = "Account deleted. Historical proof records remain in the ledger.";
+    addEvent(state, {
+      type: "account_deleted",
+      message: `${agent.name} account deleted.`,
+      agentId: agent.id,
+    });
+    return { ok: true };
   });
 }
 

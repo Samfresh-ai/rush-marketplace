@@ -539,6 +539,7 @@ export function RushMarketplaceApp() {
   const [humanDraft, setHumanDraft] = useState<HumanDraft>(defaultHumanDraft);
   const [agentDraft, setAgentDraft] = useState<AgentDraft>(defaultAgentDraft);
   const [taskDraft, setTaskDraft] = useState<TaskDraft>(defaultTaskDraft);
+  const [gmailDraft, setGmailDraft] = useState("");
   const [submissionDrafts, setSubmissionDrafts] = useState<SubmissionDrafts>(
     {},
   );
@@ -663,7 +664,7 @@ export function RushMarketplaceApp() {
     const exists =
       session.role === "human"
         ? state.humans.some((human) => human.id === session.id && !human.system)
-        : state.agents.some((agent) => agent.id === session.id);
+        : state.agents.some((agent) => agent.id === session.id && !agent.deleted);
 
     if (!exists) {
       window.localStorage.removeItem(sessionKey);
@@ -682,7 +683,7 @@ export function RushMarketplaceApp() {
   }, [notice]);
 
   const humans = (state?.humans ?? []).filter((item) => !item.system);
-  const agents = state?.agents ?? [];
+  const agents = (state?.agents ?? []).filter((item) => !item.deleted);
   const tasks = state?.tasks ?? [];
   const entries = state?.entries ?? [];
   const submissions = state?.submissions ?? [];
@@ -700,6 +701,11 @@ export function RushMarketplaceApp() {
   const selectedTask =
     tasks.find((task) => task.id === selectedTaskId) ?? tasks[0];
   const showAiButton = canGenerateWithAi();
+
+  useEffect(() => {
+    const activeGmail = session?.role === "human" ? human?.gmail : agent?.gmail;
+    setGmailDraft(activeGmail ?? "");
+  }, [agent?.gmail, human?.gmail, session?.id, session?.role]);
 
   function persistSession(nextSession: Session) {
     window.localStorage.setItem(sessionKey, JSON.stringify(nextSession));
@@ -811,6 +817,7 @@ export function RushMarketplaceApp() {
           },
         });
         selectTaskId(task.id);
+        navigateToSection("tasks");
       },
       "Bounty posted. POT is now locked in escrow.",
       "Posting task",
@@ -959,6 +966,57 @@ export function RushMarketplaceApp() {
     );
   }
 
+  async function saveGmail(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!session) {
+      return;
+    }
+
+    await runAction(
+      async () => {
+        const updated = await api<Human | Agent>("/api/account/gmail", {
+          method: "POST",
+          body: {
+            role: session.role,
+            id: session.id,
+            gmail: gmailDraft,
+          },
+        });
+        persistSession({
+          role: session.role,
+          id: session.id,
+          name: updated.name,
+        });
+      },
+      "Gmail saved for this account.",
+      "Saving Gmail",
+    );
+  }
+
+  async function deleteCurrentAccount() {
+    if (!session) {
+      return;
+    }
+
+    await runAction(
+      async () => {
+        await api("/api/account/delete", {
+          method: "POST",
+          body: {
+            role: session.role,
+            id: session.id,
+          },
+        });
+        window.localStorage.removeItem(sessionKey);
+        setSession(null);
+        setRegistrationRole(null);
+        replaceSection("dashboard");
+      },
+      "Account deleted.",
+      "Deleting account",
+    );
+  }
+
   function switchRole(role: "human" | "agent") {
     if (session?.role === role) {
       setRegistrationRole(null);
@@ -998,11 +1056,13 @@ export function RushMarketplaceApp() {
       busy={busy}
       bountyTypeFilter={bountyTypeFilter}
       compete={compete}
+      deleteCurrentAccount={deleteCurrentAccount}
       entries={entries}
       escrowBalancePot={escrowBalancePot}
       expandedSubmissions={expandedSubmissions}
       feedFlash={feedFlash}
       goBackToLanding={showLanding}
+      gmailDraft={gmailDraft}
       human={human}
       payouts={payouts}
       postTask={postTask}
@@ -1012,11 +1072,13 @@ export function RushMarketplaceApp() {
       session={session}
       resetTestStateUi={resetTestStateUi}
       runFullSeed={runFullSeed}
+      saveGmail={saveGmail}
       canGoBack={true}
       goBackState={goBackState}
       setActiveSection={navigateToSection}
       setBountyTypeFilter={setBountyTypeFilter}
       setExpandedSubmissions={setExpandedSubmissions}
+      setGmailDraft={setGmailDraft}
       setRegistrationRole={setRegistrationRole}
       setSelectedTaskId={selectTaskId}
       setSubmissionDrafts={setSubmissionDrafts}
@@ -1413,12 +1475,14 @@ function DashboardShell(props: {
   bountyTypeFilter: BountyTypeFilter;
   canGoBack: boolean;
   compete: (task: Task) => void;
+  deleteCurrentAccount: () => void;
   entries: Entry[];
   escrowBalancePot: number;
   expandedSubmissions: ExpandedSubmissions;
   feedFlash: boolean;
   goBackState: () => void;
   goBackToLanding: () => void;
+  gmailDraft: string;
   human: Human | undefined;
   payouts: JsonStoreData["payouts"];
   postTask: (event: FormEvent<HTMLFormElement>) => void;
@@ -1428,9 +1492,11 @@ function DashboardShell(props: {
   session: Session;
   resetTestStateUi: () => void;
   runFullSeed: () => void;
+  saveGmail: (event: FormEvent<HTMLFormElement>) => void;
   setActiveSection: (section: ActiveSection) => void;
   setBountyTypeFilter: (filter: BountyTypeFilter) => void;
   setExpandedSubmissions: (drafts: ExpandedSubmissions) => void;
+  setGmailDraft: (value: string) => void;
   setRegistrationRole: (role: RegistrationRole) => void;
   setSelectedTaskId: (taskId: string) => void;
   setSubmissionDrafts: (drafts: SubmissionDrafts) => void;
@@ -1452,12 +1518,14 @@ function DashboardShell(props: {
     bountyTypeFilter,
     canGoBack,
     compete,
+    deleteCurrentAccount,
     entries,
     escrowBalancePot,
     expandedSubmissions,
     feedFlash,
     goBackState,
     goBackToLanding,
+    gmailDraft,
     human,
     payouts,
     postTask,
@@ -1467,9 +1535,11 @@ function DashboardShell(props: {
     session,
     resetTestStateUi,
     runFullSeed,
+    saveGmail,
     setActiveSection,
     setBountyTypeFilter,
     setExpandedSubmissions,
+    setGmailDraft,
     setRegistrationRole,
     setSelectedTaskId,
     setSubmissionDrafts,
@@ -1841,6 +1911,7 @@ function DashboardShell(props: {
             <HumanDashboard
               activeSection={profileActiveSection}
               agents={agents}
+              busy={busy}
               entries={humanEntries}
               human={human}
               openTaskSubmissions={openTaskSubmissions}
@@ -1908,13 +1979,13 @@ function DashboardShell(props: {
           {profileActiveSection === "settings" ? (
             <SettingsPanel
               busy={busy}
+              deleteCurrentAccount={deleteCurrentAccount}
               goBackToLanding={goBackToLanding}
-              resetTestStateUi={resetTestStateUi}
-              runFullSeed={runFullSeed}
+              gmailDraft={gmailDraft}
+              saveGmail={saveGmail}
               session={session}
-              setRegistrationRole={setRegistrationRole}
+              setGmailDraft={setGmailDraft}
               state={state}
-              switchRole={switchRole}
             />
           ) : null}
         </div>
@@ -2283,6 +2354,7 @@ function AgentProfileDashboard({
 function HumanDashboard({
   activeSection,
   agents,
+  busy,
   entries,
   expandedSubmissions,
   human,
@@ -2301,6 +2373,7 @@ function HumanDashboard({
 }: {
   activeSection: ActiveSection;
   agents: Agent[];
+  busy: string;
   entries: Entry[];
   expandedSubmissions: ExpandedSubmissions;
   human: Human | undefined;
@@ -2325,6 +2398,7 @@ function HumanDashboard({
     <>
       {showCreate ? (
         <CreateTaskPanel
+          busy={busy}
           human={human}
           postTask={postTask}
           setTaskDraft={setTaskDraft}
@@ -2362,11 +2436,13 @@ function HumanDashboard({
 }
 
 function CreateTaskPanel({
+  busy,
   human,
   postTask,
   setTaskDraft,
   taskDraft,
 }: {
+  busy: string;
   human: Human | undefined;
   postTask: (event: FormEvent<HTMLFormElement>) => void;
   setTaskDraft: (draft: TaskDraft) => void;
@@ -2382,28 +2458,25 @@ function CreateTaskPanel({
             Post Bounty
           </p>
           <h2 className="mt-2 text-2xl font-bold tracking-tight text-[#f5f5f5]">
-            Choose the bounty type first
+            Write a bounty agents can execute
           </h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-[#a3a3a3]">
             {human
-              ? "This client account can lock a bounty immediately. Keep the brief tight so agents can compete cleanly."
+              ? "State the outcome, acceptance standard, deadline, and proof you expect. Agents should be able to decide whether to enter without asking for clarification."
               : "Create a client account first."}
           </p>
         </div>
-        <span className="pot-badge shrink-0">Typed bounty</span>
+        <span className="pot-badge shrink-0">Client brief</span>
       </div>
-      <div className="mt-5 grid gap-2 text-sm text-[#a3a3a3] sm:grid-cols-3">
-        <span className="rounded-xl border border-[#2a2a2a] bg-[#111111] px-3 py-2">
-          Bounty locked
-        </span>
-        <span className="rounded-xl border border-[#2a2a2a] bg-[#111111] px-3 py-2">
-          Agents choose
-        </span>
-        <span className="rounded-xl border border-[#14532d]/30 bg-[#14532d]/10 px-3 py-2 text-[#14532d]">
-          Best proof paid
-        </span>
+      <div className="mt-5 grid gap-3 rounded-2xl border border-[#2a2a2a] bg-[#111111] p-4 text-sm leading-6 text-[#a3a3a3]">
+        <p className="font-semibold text-[#f5f5f5]">Before locking escrow, make the demand specific.</p>
+        <ul className="grid gap-2">
+          <li>• Name the final deliverable and the exact format agents must submit.</li>
+          <li>• Define the minimum quality bar, judging priority, and deadline.</li>
+          <li>• Include any required links, repo access, brand constraints, or test instructions.</li>
+        </ul>
       </div>
-      <BountyTypeGuide />
+      <SupportedBountyTypes />
       <form
         className="mt-5 grid gap-4 rounded-2xl border border-[#2a2a2a] bg-[#111111] p-4 shadow-inner shadow-black/30"
         onSubmit={postTask}
@@ -2421,7 +2494,7 @@ function CreateTaskPanel({
           >
             {BOUNTY_TYPE_OPTIONS.map((option) => (
               <option key={option.type} value={option.type}>
-                {option.label} — {option.lane === "dev" ? "Dev" : "Creator"}
+                {option.label}
               </option>
             ))}
           </select>
@@ -2432,11 +2505,9 @@ function CreateTaskPanel({
             <span className="vault-tag vault-tag-orange">
               {selectedConfig.lane === "dev" ? "Dev" : "Creator"}
             </span>
-            <span className="font-semibold text-[#f5f5f5]">
-              Example: {selectedConfig.example}
-            </span>
+            <span className="font-semibold text-[#f5f5f5]">{selectedConfig.label}</span>
           </div>
-          <p>Agents must submit: {selectedConfig.submitHint}</p>
+          <p>Submission format: {selectedConfig.submitHint}</p>
           <div className="flex flex-wrap gap-2">
             {selectedConfig.requiredSubmissionFields.map((field) => (
               <span className="skill-chip" key={field}>{fieldLabel(field)}</span>
@@ -2450,7 +2521,7 @@ function CreateTaskPanel({
               onChange={(event) =>
                 setTaskDraft({ ...taskDraft, title: event.target.value })
               }
-              placeholder="Build X in 48hrs, best wins 500 POT"
+              placeholder="Name the deliverable and outcome"
               required
               value={taskDraft.title}
             />
@@ -2474,38 +2545,42 @@ function CreateTaskPanel({
             onChange={(event) =>
               setTaskDraft({ ...taskDraft, description: event.target.value })
             }
-            placeholder="Explain the work, who should compete, the deadline, and what a winning submission must prove."
+            placeholder="Describe the demand, acceptance bar, constraints, deadline, and the proof agents must submit."
             required
             value={taskDraft.description}
           />
         </Field>
-        <button className="primary-button h-12 w-full" type="submit">
-          Post bounty and lock escrow
+        <button
+          className="primary-button h-12 w-full"
+          disabled={busy === "Posting task"}
+          type="submit"
+        >
+          {busy === "Posting task" ? "Locking escrow..." : "Post bounty and lock escrow"}
         </button>
       </form>
     </section>
   );
 }
 
-function BountyTypeGuide() {
+function SupportedBountyTypes() {
   return (
     <div className="mt-5 overflow-hidden rounded-2xl border border-[#2a2a2a] bg-[#0d0d0d]">
-      <div className="grid border-b border-[#2a2a2a] bg-[#111111] px-4 py-3 text-xs font-semibold uppercase tracking-wide text-[#737373] sm:grid-cols-[150px_110px_minmax(0,1fr)]">
-        <span>Type</span>
-        <span className="hidden sm:block">For</span>
-        <span className="hidden sm:block">Example</span>
+      <div className="grid border-b border-[#2a2a2a] bg-[#111111] px-4 py-3 text-xs font-semibold uppercase tracking-wide text-[#737373] sm:grid-cols-[170px_120px_minmax(0,1fr)]">
+        <span>Supported type</span>
+        <span className="hidden sm:block">Lane</span>
+        <span className="hidden sm:block">Use when</span>
       </div>
       <div className="divide-y divide-[#2a2a2a]">
         {BOUNTY_TYPE_OPTIONS.map((option) => (
           <div
-            className="grid gap-2 px-4 py-3 text-sm sm:grid-cols-[150px_110px_minmax(0,1fr)] sm:items-center"
+            className="grid gap-2 px-4 py-3 text-sm sm:grid-cols-[170px_120px_minmax(0,1fr)] sm:items-center"
             key={option.type}
           >
-            <span className="vault-tag w-fit">[{option.tag}]</span>
+            <span className="font-semibold text-[#f5f5f5]">{option.label}</span>
             <span className="text-[#f59e0b]">
               {option.lane === "dev" ? "Dev" : "Creator"}
             </span>
-            <span className="leading-6 text-[#a3a3a3]">{option.example}</span>
+            <span className="leading-6 text-[#a3a3a3]">{option.submitHint}</span>
           </div>
         ))}
       </div>
@@ -3567,31 +3642,6 @@ function CompetitionPanel({
           <p className="mt-2 max-w-3xl text-sm leading-6 text-[#a3a3a3]">
             {task.description}
           </p>
-          <div className="mt-4 grid gap-3 text-sm text-[#a3a3a3] lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)]">
-            <div className="rounded-2xl border border-[#2a2a2a] bg-[#111111] p-4">
-              <p className="font-semibold text-[#f5f5f5]">
-              Required proof
-              </p>
-              <p className="mt-1">{config.submitHint}</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {config.requiredSubmissionFields.map((field) => (
-                  <span className="skill-chip" key={field}>
-                    {fieldLabel(field)}
-                  </span>
-                ))}
-              </div>
-            </div>
-            <div className="rounded-2xl border border-[#2a2a2a] bg-[#111111] p-4">
-              <p className="font-semibold text-[#f5f5f5]">Judging checks</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {config.judgingCriteria.map((criterion) => (
-                  <span className="skill-chip" key={criterion}>
-                    {criterion}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
         </div>
         <div className="rounded-2xl border border-[#f59e0b]/25 bg-[#f59e0b]/10 px-4 py-3 text-[#f59e0b]">
           <p className="text-xs font-semibold uppercase tracking-wide">
@@ -4503,22 +4553,22 @@ function AnalyticsPanel({
 
 function SettingsPanel({
   busy,
+  deleteCurrentAccount,
   goBackToLanding,
-  resetTestStateUi,
-  runFullSeed,
+  gmailDraft,
+  saveGmail,
   session,
-  setRegistrationRole,
+  setGmailDraft,
   state,
-  switchRole,
 }: {
   busy: string;
+  deleteCurrentAccount: () => void;
   goBackToLanding: () => void;
-  resetTestStateUi: () => void;
-  runFullSeed: () => void;
+  gmailDraft: string;
+  saveGmail: (event: FormEvent<HTMLFormElement>) => void;
   session: Session;
-  setRegistrationRole: (role: RegistrationRole) => void;
+  setGmailDraft: (value: string) => void;
   state: JsonStoreData;
-  switchRole: (role: "human" | "agent") => void;
 }) {
   return (
     <div className="grid gap-6">
@@ -4529,11 +4579,11 @@ function SettingsPanel({
               Settings
             </p>
             <h2 className="mt-2 text-2xl font-bold text-[#f5f5f5]">
-              Workspace controls
+              Account controls
             </h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-[#a3a3a3]">
-              Test-chain seed controls are kept out of the main dashboard.
-              They replay the typed bounty → proof → review → payout loop when needed.
+              Manage the current account. Bounty data and proof ledgers stay
+              separate from user access.
             </p>
           </div>
           <span className="rounded-xl border border-[#2a2a2a] bg-[#111111] px-3 py-2 text-sm text-[#a3a3a3]">
@@ -4544,24 +4594,29 @@ function SettingsPanel({
           <div className="rounded-2xl border border-[#2a2a2a] bg-[#111111] p-4">
             <h3 className="text-lg font-bold text-[#f5f5f5]">Account access</h3>
             <p className="mt-1 text-sm text-[#a3a3a3]">
-              Open your own page or create a separate account. Seeded profiles
-              are never used as shortcuts.
+              Add a Gmail address for follow-up outside the marketplace, or
+              delete the current account.
             </p>
-            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            <form className="mt-4 grid gap-3" onSubmit={saveGmail}>
+              <Field label="Gmail">
+                <input
+                  className="input"
+                  onChange={(event) => setGmailDraft(event.target.value)}
+                  placeholder="name@gmail.com"
+                  required
+                  type="email"
+                  value={gmailDraft}
+                />
+              </Field>
               <button
-                className="secondary-button h-11"
-                onClick={() => switchRole("human")}
-                type="button"
+                className="primary-button h-11 px-4"
+                disabled={busy === "Saving Gmail"}
+                type="submit"
               >
-                {session.role === "human" ? "My Client Page" : "Create Client Profile"}
+                {busy === "Saving Gmail" ? "Saving Gmail..." : "Add Gmail"}
               </button>
-              <button
-                className="secondary-button h-11"
-                onClick={() => switchRole("agent")}
-                type="button"
-              >
-                {session.role === "agent" ? "My Agent Page" : "Create Agent Profile"}
-              </button>
+            </form>
+            <div className="mt-4 grid gap-2">
               <button
                 className="secondary-button h-11"
                 onClick={goBackToLanding}
@@ -4570,80 +4625,25 @@ function SettingsPanel({
                 Back to Landing
               </button>
             </div>
+            <div className="mt-5 rounded-2xl border border-red-500/25 bg-red-500/10 p-4">
+              <p className="text-sm font-semibold text-red-200">Delete account</p>
+              <p className="mt-1 text-sm leading-6 text-red-100/80">
+                This removes the current account login. Public bounty and proof
+                records remain in the marketplace ledger.
+              </p>
+              <button
+                className="mt-3 inline-flex h-11 items-center justify-center rounded-xl border border-red-500/40 bg-red-500/15 px-4 text-sm font-semibold text-red-100 transition hover:border-red-400/70 hover:bg-red-500/25 disabled:cursor-not-allowed disabled:opacity-55"
+                disabled={busy === "Deleting account"}
+                onClick={deleteCurrentAccount}
+                type="button"
+              >
+                {busy === "Deleting account" ? "Deleting account..." : "Delete account"}
+              </button>
+            </div>
           </div>
-          <TestChainControls
-            busy={busy}
-            resetTestStateUi={resetTestStateUi}
-            runFullSeed={runFullSeed}
-          />
+          <RawStatePanel state={state} />
         </div>
       </section>
-      <RawStatePanel state={state} />
-    </div>
-  );
-}
-
-function TestChainControls({
-  busy,
-  resetTestStateUi,
-  runFullSeed,
-}: {
-  busy: string;
-  resetTestStateUi: () => void;
-  runFullSeed: () => void;
-}) {
-  return (
-    <div className="rounded-2xl border border-[#2a2a2a] bg-[#111111] p-4 shadow-inner shadow-black/30">
-      <div className="flex flex-col gap-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h3 className="text-lg font-bold text-[#f5f5f5]">
-              {busy ? (
-                <span className="inline-flex items-center gap-2">
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#7c3aed] border-t-transparent" />
-                  {busy}
-                </span>
-              ) : (
-                "Test Chain Controls"
-              )}
-            </h3>
-            <p className="mt-1 text-sm text-[#a3a3a3]">
-              Test-chain controls for resetting or replaying the reference
-              flow.
-            </p>
-          </div>
-          <span className="rounded-lg border border-[#f59e0b]/30 bg-[#f59e0b]/10 px-2.5 py-1 text-xs font-bold text-[#fbbf24]">
-            Seed
-          </span>
-        </div>
-        <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1">
-          <button
-            className="primary-button h-11 px-3"
-            disabled={Boolean(busy)}
-            onClick={runFullSeed}
-            type="button"
-          >
-            Run Full Seed
-          </button>
-          <button
-            className="secondary-button h-11 px-3"
-            disabled={Boolean(busy)}
-            onClick={resetTestStateUi}
-            type="button"
-          >
-            Reset State
-          </button>
-          <button
-            className="secondary-button h-11 px-3"
-            onClick={() =>
-              window.open("/api/state", "_blank", "noopener,noreferrer")
-            }
-            type="button"
-          >
-            View Raw State
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
